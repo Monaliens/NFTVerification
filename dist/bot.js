@@ -2,10 +2,10 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 require("./register");
 const discord_js_1 = require("discord.js");
-const config_1 = require("@/config/config");
-const database_1 = require("@/services/database");
-const nft_1 = require("@/services/nft");
-const discord_1 = require("@/services/discord");
+const config_1 = require("./config/config");
+const database_1 = require("./services/database");
+const nft_1 = require("./services/nft");
+const discord_1 = require("./services/discord");
 const client = new discord_js_1.Client({
     intents: [
         discord_js_1.GatewayIntentBits.Guilds,
@@ -145,7 +145,7 @@ const sendVerificationInstructions = async (interaction, address) => {
 const updateAndDeleteMessage = async (interaction, content, durationSeconds = 120) => {
     const endTime = Date.now() + (durationSeconds * 1000);
     let remainingSeconds = durationSeconds;
-    const reply = await (content instanceof String || typeof content === 'string'
+    await (content instanceof String || typeof content === 'string'
         ? interaction.editReply({
             content: `${content}\n\n_This message will be deleted in ${remainingSeconds} seconds_`,
             ephemeral: true

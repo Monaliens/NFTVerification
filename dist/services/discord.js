@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.DiscordService = void 0;
 exports.createDiscordService = createDiscordService;
-const config_1 = require("@/config/config");
+const config_1 = require("../config/config");
 const database_1 = require("./database");
 const nft_1 = require("./nft");
 class DiscordService {
