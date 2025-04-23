@@ -17,26 +17,42 @@ const discordService = (0, discord_1.createDiscordService)(client);
 const createVerificationMessage = () => {
     const embed = new discord_js_1.EmbedBuilder()
         .setColor('#0099ff')
-        .setTitle('Wallet Verification')
-        .setDescription('Link your wallet to join the Lil Monaliens community.')
-        .addFields({ name: 'Steps:', value: '1. Click Link Your Wallet to register your wallet.\n' +
-            '2. Complete the verification by sending exactly 0.01 $MON.\n' +
-            '3. Use Update Holdings to update your roles based on NFTs.'
+        .setTitle('🔐 Wallet Verification System')
+        .setDescription('Welcome to the Lil Monaliens community! To access exclusive holder channels and benefits, please verify your wallet ownership.')
+        .addFields({
+        name: '📝 How to Verify',
+        value: '1. Click `Link Your Wallet` and enter your wallet address\n' +
+            '2. Send the exact amount of $MON shown to you back to your own wallet\n' +
+            '3. Wait for automatic verification or click `Check Payment`'
+    }, {
+        name: '🎭 NFT Roles',
+        value: 'After verification, use `Update Holdings` to receive your NFT holder roles automatically.'
+    }, {
+        name: '💡 Tips',
+        value: '• You can link multiple wallets\n' +
+            '• Use `Show Linked Wallets` to manage your wallets\n' +
+            '• Roles are updated automatically every 10 minutes'
     })
         .setTimestamp()
-        .setFooter({ text: 'Wallet Verification System' });
+        .setFooter({
+        text: 'Lil Monaliens | Secure Wallet Verification',
+        iconURL: 'https://i.imgur.com/V69kAXL.png'
+    });
     const linkWalletButton = new discord_js_1.ButtonBuilder()
         .setCustomId('add_wallet')
         .setLabel('Link Your Wallet')
-        .setStyle(discord_js_1.ButtonStyle.Primary);
+        .setStyle(discord_js_1.ButtonStyle.Primary)
+        .setEmoji('🔗');
     const updateHoldingsButton = new discord_js_1.ButtonBuilder()
         .setCustomId('update_holdings')
         .setLabel('Update Holdings')
-        .setStyle(discord_js_1.ButtonStyle.Secondary);
+        .setStyle(discord_js_1.ButtonStyle.Secondary)
+        .setEmoji('🔄');
     const showWalletsButton = new discord_js_1.ButtonBuilder()
         .setCustomId('list_wallets')
         .setLabel('Show Linked Wallets')
-        .setStyle(discord_js_1.ButtonStyle.Secondary);
+        .setStyle(discord_js_1.ButtonStyle.Secondary)
+        .setEmoji('📋');
     const row = new discord_js_1.ActionRowBuilder()
         .addComponents(linkWalletButton, updateHoldingsButton, showWalletsButton);
     return { embeds: [embed], components: [row] };
