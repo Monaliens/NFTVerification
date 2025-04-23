@@ -33,6 +33,12 @@ services:
       - .env
     volumes:
       - ./prisma:/app/prisma
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
   db:
     image: postgres:15-alpine
@@ -42,6 +48,12 @@ services:
       - .env
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
 
 volumes:
   postgres_data:

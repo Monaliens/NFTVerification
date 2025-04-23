@@ -1,6 +1,9 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
+
+# Install OpenSSL
+RUN apk add --no-cache openssl
 
 # Install dependencies
 COPY package*.json ./
