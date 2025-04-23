@@ -32,6 +32,3 @@ jobs:
             docker-compose down || true
             docker-compose pull || true
             docker-compose up -d --build
-            
-            # Run database migrations
-            docker-compose exec -T bot npx prisma migrate deploy
