@@ -15,18 +15,22 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            # PAT'ı kullanarak clone et
-            if [ ! -d "/root/NFTVerification" ]; then
-              git clone https://${{ secrets.GH_PAT }}@github.com/Monaliens/NFTVerification.git /root/NFTVerification
+            # Clone or pull latest changes
+            if [ ! -d "/root/nft-verification" ]; then
+              git clone https://${{ secrets.GH_PAT }}@github.com/Monaliens/NFTVerification.git /root/nft-verification
             else
-              cd /root/NFTVerification
+              cd /root/nft-verification
               git stash
               git pull https://${{ secrets.GH_PAT }}@github.com/Monaliens/NFTVerification.git main
             fi
             
-            # Deploy işlemi
-            cd /root/NFTVerification
+            # Navigate to project directory
+            cd /root/nft-verification
             
-            # Docker ile deploy
+            # Deploy with Docker
             docker-compose down || true
+            docker-compose pull || true
             docker-compose up -d --build
+            
+            # Run database migrations
+            docker-compose exec -T bot npx prisma migrate deploy

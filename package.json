@@ -5,7 +5,7 @@
   "main": "dist/bot.js",
   "scripts": {
     "build": "tsc && tsc-alias",
-    "start": "node dist/bot.js",
+    "start": "NODE_TLS_REJECT_UNAUTHORIZED=0 node dist/bot.js",
     "dev": "ts-node -r tsconfig-paths/register src/bot.ts",
     "prisma:generate": "prisma generate"
   },

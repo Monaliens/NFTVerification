@@ -22,3 +22,26 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nft_verification_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./prisma:/app/prisma
+
+  db:
+    image: postgres:15-alpine
+    container_name: nft_verification_db
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
