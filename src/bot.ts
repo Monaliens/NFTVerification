@@ -219,51 +219,28 @@ const updateAndDeleteMessage = async (
   content: string | { embeds: EmbedBuilder[], components: any[] },
   durationSeconds: number = 120
 ) => {
-  const endTime = Date.now() + (durationSeconds * 1000);
-  let remainingSeconds = durationSeconds;
-  
-  // Initial reply
+  // Send new message
   await (content instanceof String || typeof content === 'string' 
-    ? interaction.editReply({ 
-        content: `${content}\n\n_This message will be deleted in ${remainingSeconds} seconds_`,
+    ? interaction.reply({ 
+        content: `${content}\n\n_This message will be deleted in ${durationSeconds} seconds_`,
         ephemeral: true 
       })
-    : interaction.editReply({
+    : interaction.reply({
         ...content,
-        content: `_This message will be deleted in ${remainingSeconds} seconds_`,
+        content: `_This message will be deleted in ${durationSeconds} seconds_`,
         ephemeral: true
       }));
 
-  // Update countdown every 5 seconds
-  const updateInterval = setInterval(async () => {
+  // Delete after duration
+  setTimeout(async () => {
     try {
-      remainingSeconds = Math.ceil((endTime - Date.now()) / 1000);
-      
-      if (remainingSeconds <= 0) {
-        clearInterval(updateInterval);
-        if (interaction.isRepliable()) {
-          await interaction.deleteReply();
-        }
-        return;
-      }
-
       if (interaction.isRepliable()) {
-        await (content instanceof String || typeof content === 'string'
-          ? interaction.editReply({ 
-              content: `${content}\n\n_This message will be deleted in ${remainingSeconds} seconds_`,
-              ephemeral: true 
-            })
-          : interaction.editReply({
-              ...content,
-              content: `_This message will be deleted in ${remainingSeconds} seconds_`,
-              ephemeral: true
-            }));
+        await interaction.deleteReply();
       }
     } catch (error) {
-      clearInterval(updateInterval);
-      console.error('Error updating message:', error);
+      console.error('Error deleting message:', error);
     }
-  }, 5000); // Update every 5 seconds
+  }, durationSeconds * 1000);
 };
 
 // Event handlers
@@ -282,7 +259,15 @@ client.on('ready', async () => {
     console.log('Fetching previous messages...');
     const messages = await channel.messages.fetch({ limit: 100 });
     console.log(`Found ${messages.size} messages to delete`);
-    await channel.bulkDelete(messages);
+
+    // Delete messages that are less than 14 days old
+    const twoWeeksAgo = Date.now() - (14 * 24 * 60 * 60 * 1000);
+    const messagesToDelete = messages.filter(msg => msg.createdTimestamp > twoWeeksAgo);
+    
+    if (messagesToDelete.size > 0) {
+      console.log(`Deleting ${messagesToDelete.size} messages...`);
+      await channel.bulkDelete(messagesToDelete);
+    }
     
     console.log('Sending verification message...');
     const message = await channel.send(createVerificationMessage());
@@ -359,16 +344,10 @@ client.on('interactionCreate', async (interaction) => {
           const embed = await createWalletListEmbed(wallets);
           const row = createWalletActionRow(wallets);
           
-          await buttonInteraction.reply({
-            embeds: [embed],
-            components: [row],
-            ephemeral: true
-          });
-          
           await updateAndDeleteMessage(buttonInteraction, {
             embeds: [embed],
             components: [row]
-          }, 60); // 1 minute for all messages
+          }, 60);
           break;
         }
 
