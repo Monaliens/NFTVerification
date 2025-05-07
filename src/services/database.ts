@@ -50,7 +50,7 @@ class DatabaseService {
       isVerified: wallet.isVerified,
       ownerId: wallet.user.discordId
     };
-  }
+  } 
 
   async forceDeleteWallet(address: string): Promise<void> {
     await this.prisma.wallet.deleteMany({
