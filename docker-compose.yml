@@ -1,28 +1,5 @@
 version: '3'
 services:
-  app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: nftverification_app
-    ports:
-      - "3002:3002"
-    restart: unless-stopped
-    env_file:
-      - .env
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/frontend/node_modules
-      - /app/frontend/build
-    environment:
-      - NODE_ENV=production
-    healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3002"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
   bot:
     build:
       context: .
