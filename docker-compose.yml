@@ -9,7 +9,9 @@ services:
     env_file:
       - .env
     volumes:
-      - ./prisma:/app/prisma
+      - type: bind
+        source: ./prisma
+        target: /app/prisma
     deploy:
       resources:
         limits:
