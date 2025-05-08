@@ -28,7 +28,12 @@ jobs:
             # Navigate to project directory
             cd /root/NFTVerification
             
-            # Deploy with Docker
+            # Stop and remove existing containers
             docker-compose down || true
+            docker stop nft_verification_bot || true
+            docker rm nft_verification_bot || true
+            
+            
+            # Deploy with Docker
             docker-compose pull || true
             docker-compose up -d --build
