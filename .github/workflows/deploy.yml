@@ -17,7 +17,7 @@ jobs:
           debug: true
           script: |
             # Clone or pull latest changes
-            if [ ! -d "/root/NFTVerification
+            if [ ! -d "/root/NFTVerification" ]; then
               git clone https://${{ secrets.GH_PAT }}@github.com/Monaliens/NFTVerification.git /root/NFTVerification
             else
               cd /root/NFTVerification
