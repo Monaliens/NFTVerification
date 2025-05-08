@@ -219,28 +219,47 @@ const updateAndDeleteMessage = async (
   content: string | { embeds: EmbedBuilder[], components: any[] },
   durationSeconds: number = 120
 ) => {
-  // Send new message
-  await (content instanceof String || typeof content === 'string' 
-    ? interaction.reply({ 
-        content: `${content}\n\n_This message will be deleted in ${durationSeconds} seconds_`,
-        ephemeral: true 
-      })
-    : interaction.reply({
-        ...content,
-        content: `_This message will be deleted in ${durationSeconds} seconds_`,
-        ephemeral: true
-      }));
-
-  // Delete after duration
-  setTimeout(async () => {
-    try {
-      if (interaction.isRepliable()) {
-        await interaction.deleteReply();
-      }
-    } catch (error) {
-      console.error('Error deleting message:', error);
+  try {
+    const isStringContent = content instanceof String || typeof content === 'string';
+    // If already replied or deferred, use editReply; otherwise, use reply
+    if (interaction.replied || interaction.deferred) {
+      await (isStringContent
+        ? interaction.editReply({
+            content: `${content}\n\n_This message will be deleted in ${durationSeconds} seconds_`,
+            ephemeral: true
+          })
+        : interaction.editReply({
+            ...content,
+            content: `_This message will be deleted in ${durationSeconds} seconds_`,
+            ephemeral: true
+          })
+      );
+    } else {
+      await (isStringContent
+        ? interaction.reply({
+            content: `${content}\n\n_This message will be deleted in ${durationSeconds} seconds_`,
+            ephemeral: true
+          })
+        : interaction.reply({
+            ...content,
+            content: `_This message will be deleted in ${durationSeconds} seconds_`,
+            ephemeral: true
+          })
+      );
     }
-  }, durationSeconds * 1000);
+    // Delete after duration
+    setTimeout(async () => {
+      try {
+        if (interaction.isRepliable()) {
+          await interaction.deleteReply();
+        }
+      } catch (error) {
+        console.error('Error deleting message:', error);
+      }
+    }, durationSeconds * 1000);
+  } catch (error) {
+    console.error('Error in updateAndDeleteMessage:', error);
+  }
 };
 
 // Event handlers
@@ -303,6 +322,11 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
       const buttonInteraction = interaction as ButtonInteraction;
       
+      // Check if interaction is already handled
+      if (buttonInteraction.replied || buttonInteraction.deferred) {
+        return;
+      }
+
       switch (buttonInteraction.customId) {
         case 'add_wallet': {
           // Create the modal
