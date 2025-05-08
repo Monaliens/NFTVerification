@@ -17,16 +17,16 @@ jobs:
           debug: true
           script: |
             # Clone or pull latest changes
-            if [ ! -d "/root/nft-verification" ]; then
-              git clone https://${{ secrets.GH_PAT }}@github.com/Monaliens/NFTVerification.git /root/nft-verification
+            if [ ! -d "/root/NFTVerification
+              git clone https://${{ secrets.GH_PAT }}@github.com/Monaliens/NFTVerification.git /root/NFTVerification
             else
-              cd /root/nft-verification
+              cd /root/NFTVerification
               git stash
               git pull https://${{ secrets.GH_PAT }}@github.com/Monaliens/NFTVerification.git main
             fi
             
             # Navigate to project directory
-            cd /root/nft-verification
+            cd /root/NFTVerification
             
             # Deploy with Docker
             docker-compose down || true
