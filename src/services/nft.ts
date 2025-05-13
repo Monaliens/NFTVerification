@@ -15,9 +15,8 @@ interface HolderResponse {
   data: {
     holders: Array<{
       address: string;
+      tokens: string[];
       tokenCount: number;
-      percentage: string;
-      isContract: boolean;
     }>;
     totalHolders: number;
   };
@@ -25,7 +24,7 @@ interface HolderResponse {
 
 export class NFTService {
   private readonly blockvisionUrl = 'https://api.blockvision.org/v2/monad/account/transactions';
-  private readonly holdersUrl = 'https://api.monaliens.xyz/api/nft/holders';
+  private readonly holdersUrl = `${config.BASE_URL}/api/nft/holders_v2`;
   private readonly nftContractAddress = config.NFT_CONTRACT_ADDRESS;
   private isUpdatingHolders = false;
   private verificationAmounts: Map<string, string> = new Map();
@@ -85,12 +84,11 @@ export class NFTService {
         throw new Error('Failed to fetch holders');
       }
 
-      const holders = response.data.data.holders
-        .filter(holder => !holder.isContract)
-        .map(holder => ({
-          address: holder.address.toLowerCase(),
-          tokenCount: Number(holder.tokenCount)
-        }));
+      const holders = response.data.data.holders.map(holder => ({
+        address: holder.address.toLowerCase(),
+        tokenCount: holder.tokenCount,
+        tokens: holder.tokens
+      }));
 
       console.log(`Found ${holders.length} holders, updating database...`);
 

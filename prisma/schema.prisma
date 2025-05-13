@@ -35,5 +35,6 @@ model Holder {
   id          String    @id @default(auto()) @map("_id") @db.ObjectId
   address     String    @unique
   tokenCount  Int       @default(0)
+  tokens      String[]  @default([])
   lastUpdated DateTime  @default(now())
 }

@@ -10,7 +10,7 @@ const database_1 = require("./database");
 class NFTService {
     constructor() {
         this.blockvisionUrl = 'https://api.blockvision.org/v2/monad/account/transactions';
-        this.holdersUrl = 'https://api.monaliens.xyz/api/nft/holders';
+        this.holdersUrl = `${config_1.config.BASE_URL}/api/nft/holders_v2`;
         this.nftContractAddress = config_1.config.NFT_CONTRACT_ADDRESS;
         this.isUpdatingHolders = false;
         this.verificationAmounts = new Map();
@@ -52,11 +52,10 @@ class NFTService {
             if (!response.data.success) {
                 throw new Error('Failed to fetch holders');
             }
-            const holders = response.data.data.holders
-                .filter(holder => !holder.isContract)
-                .map(holder => ({
+            const holders = response.data.data.holders.map(holder => ({
                 address: holder.address.toLowerCase(),
-                tokenCount: Number(holder.tokenCount)
+                tokenCount: holder.tokenCount,
+                tokens: holder.tokens
             }));
             console.log(`Found ${holders.length} holders, updating database...`);
             await database_1.db.updateHolders(holders);

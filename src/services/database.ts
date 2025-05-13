@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 interface HolderData {
   address: string;
   tokenCount: number;
+  tokens: string[];
 }
 
 class DatabaseService {
@@ -185,12 +186,13 @@ class DatabaseService {
       // Delete all existing holders first
       await this.prisma.holder.deleteMany({});
       
-      // Add new holders with token counts
+      // Add new holders with token counts and token IDs
       if (holders.length > 0) {
         await this.prisma.holder.createMany({
           data: holders.map(holder => ({
             address: holder.address.toLowerCase(),
-            tokenCount: holder.tokenCount
+            tokenCount: holder.tokenCount,
+            tokens: holder.tokens
           }))
         });
       }

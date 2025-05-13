@@ -144,7 +144,8 @@ class DatabaseService {
                 await this.prisma.holder.createMany({
                     data: holders.map(holder => ({
                         address: holder.address.toLowerCase(),
-                        tokenCount: holder.tokenCount
+                        tokenCount: holder.tokenCount,
+                        tokens: holder.tokens
                     }))
                 });
             }

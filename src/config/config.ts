@@ -13,6 +13,9 @@ const envSchema = z.object({
   // MongoDB Configuration
   DATABASE_URL: z.string(),
 
+  // API Configuration
+  BASE_URL: z.string().default('https://api.monaliens.xyz'),
+
   // NFT Configuration
   VERIFICATION_WALLET_ADDRESS: z.string(),
   BLOCKVISION_API_KEY: z.string(),

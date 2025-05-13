@@ -214,53 +214,6 @@ const sendVerificationInstructions = async (interaction: ModalSubmitInteraction,
   }, 60000); // 1 minute
 };
 
-const updateAndDeleteMessage = async (
-  interaction: any, 
-  content: string | { embeds: EmbedBuilder[], components: any[] },
-  durationSeconds: number = 120
-) => {
-  try {
-    const isStringContent = content instanceof String || typeof content === 'string';
-    // If already replied or deferred, use editReply; otherwise, use reply
-    if (interaction.replied || interaction.deferred) {
-      await (isStringContent
-        ? interaction.editReply({
-            content: `${content}\n\n_This message will be deleted in ${durationSeconds} seconds_`,
-            ephemeral: true
-          })
-        : interaction.editReply({
-            ...content,
-            content: `_This message will be deleted in ${durationSeconds} seconds_`,
-            ephemeral: true
-          })
-      );
-    } else {
-      await (isStringContent
-        ? interaction.reply({
-            content: `${content}\n\n_This message will be deleted in ${durationSeconds} seconds_`,
-            ephemeral: true
-          })
-        : interaction.reply({
-            ...content,
-            content: `_This message will be deleted in ${durationSeconds} seconds_`,
-            ephemeral: true
-          })
-      );
-    }
-    // Delete after duration
-    setTimeout(async () => {
-      try {
-        if (interaction.isRepliable()) {
-          await interaction.deleteReply();
-        }
-      } catch (error) {
-        console.error('Error deleting message:', error);
-      }
-    }, durationSeconds * 1000);
-  } catch (error) {
-    console.error('Error in updateAndDeleteMessage:', error);
-  }
-};
 
 // Event handlers
 client.on('ready', async () => {
@@ -355,23 +308,61 @@ client.on('interactionCreate', async (interaction) => {
 
         case 'update_holdings':
           await buttonInteraction.deferReply({ ephemeral: true });
-          await discordService.updateMemberRoles(buttonInteraction.user.id);
-          await updateAndDeleteMessage(
-            buttonInteraction,
-            'Your roles have been updated based on your NFT holdings.',
-            60 // 1 minute for all messages
-          );
+          
+          try {
+            await discordService.updateMemberRoles(buttonInteraction.user.id);
+            
+            await buttonInteraction.editReply({
+              content: 'Your roles have been updated based on your NFT holdings.'
+            });
+            
+            // Delete message after 60 seconds
+            setTimeout(async () => {
+              try {
+                if (buttonInteraction.isRepliable()) {
+                  await buttonInteraction.deleteReply();
+                }
+              } catch (error) {
+                console.error('Error deleting roles update message:', error);
+              }
+            }, 60000); // 60 seconds
+          } catch (error) {
+            console.error('Error updating roles:', error);
+            await buttonInteraction.editReply({
+              content: 'An error occurred while updating your roles. Please try again.'
+            });
+          }
           break;
 
         case 'list_wallets': {
-          const wallets = await db.getWallets(buttonInteraction.user.id);
-          const embed = await createWalletListEmbed(wallets);
-          const row = createWalletActionRow(wallets);
+          await buttonInteraction.deferReply({ ephemeral: true });
           
-          await updateAndDeleteMessage(buttonInteraction, {
-            embeds: [embed],
-            components: [row]
-          }, 60);
+          try {
+            const wallets = await db.getWallets(buttonInteraction.user.id);
+            const embed = await createWalletListEmbed(wallets);
+            const row = createWalletActionRow(wallets);
+            
+            await buttonInteraction.editReply({
+              embeds: [embed],
+              components: [row]
+            });
+            
+            // Delete message after 60 seconds
+            setTimeout(async () => {
+              try {
+                if (buttonInteraction.isRepliable()) {
+                  await buttonInteraction.deleteReply();
+                }
+              } catch (error) {
+                console.error('Error deleting wallet list message:', error);
+              }
+            }, 60000); // 60 seconds
+          } catch (error) {
+            console.error('Error listing wallets:', error);
+            await buttonInteraction.editReply({
+              content: 'An error occurred while fetching your wallets. Please try again.'
+            });
+          }
           break;
         }
 
@@ -523,27 +514,53 @@ client.on('interactionCreate', async (interaction) => {
       if (interaction.customId === 'wallet_selection') {
         await interaction.deferReply({ ephemeral: true });
         
-        const walletNumber = parseInt(interaction.fields.getTextInputValue('wallet_number'));
-        const wallets = await db.getWallets(interaction.user.id);
-        
-        if (walletNumber < 1 || walletNumber > wallets.length) {
-          await updateAndDeleteMessage(
-            interaction,
-            `❌ Invalid wallet number. Please choose between 1 and ${wallets.length}.`,
-            60 // 1 minute for all messages
-          );
-          return;
+        try {
+          const walletNumber = parseInt(interaction.fields.getTextInputValue('wallet_number'));
+          const wallets = await db.getWallets(interaction.user.id);
+          
+          if (walletNumber < 1 || walletNumber > wallets.length) {
+            await interaction.editReply({
+              content: `❌ Invalid wallet number. Please choose between 1 and ${wallets.length}.`
+            });
+            
+            // Delete message after 60 seconds
+            setTimeout(async () => {
+              try {
+                if (interaction.isRepliable()) {
+                  await interaction.deleteReply();
+                }
+              } catch (error) {
+                console.error('Error deleting invalid wallet number message:', error);
+              }
+            }, 60000); // 60 seconds
+            return;
+          }
+
+          const selectedWallet = wallets[walletNumber - 1];
+
+          await db.deleteWallet(interaction.user.id, selectedWallet.address);
+          await discordService.updateMemberRoles(interaction.user.id);
+          
+          await interaction.editReply({
+            content: `✅ Wallet \`${selectedWallet.address}\` has been removed.`
+          });
+          
+          // Delete message after 60 seconds
+          setTimeout(async () => {
+            try {
+              if (interaction.isRepliable()) {
+                await interaction.deleteReply();
+              }
+            } catch (error) {
+              console.error('Error deleting wallet removed message:', error);
+            }
+          }, 60000); // 60 seconds
+        } catch (error) {
+          console.error('Error handling wallet selection:', error);
+          await interaction.editReply({
+            content: 'An error occurred while processing your request. Please try again.'
+          });
         }
-
-        const selectedWallet = wallets[walletNumber - 1];
-
-        await db.deleteWallet(interaction.user.id, selectedWallet.address);
-        await discordService.updateMemberRoles(interaction.user.id);
-        await updateAndDeleteMessage(
-          interaction,
-          `✅ Wallet \`${selectedWallet.address}\` has been removed.`,
-          60 // 1 minute for all messages
-        );
       } else if (interaction.customId === 'wallet_input') {
         // Defer the reply immediately to prevent timeout
         await interaction.deferReply({ ephemeral: true });
@@ -580,11 +597,21 @@ client.on('interactionCreate', async (interaction) => {
     }
   } catch (error) {
     console.error('Error handling interaction:', error);
-    if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-      await interaction.reply({
-        content: 'An error occurred while processing your request.',
-        ephemeral: true
-      });
+    
+    // Only try to reply if the interaction hasn't been acknowledged yet
+    try {
+      if (
+        interaction.isRepliable() && 
+        !interaction.replied && 
+        !interaction.deferred
+      ) {
+        await interaction.reply({
+          content: 'An error occurred while processing your request.',
+          ephemeral: true
+        });
+      }
+    } catch (replyError) {
+      console.error('Error sending error response:', replyError);
     }
   }
 });

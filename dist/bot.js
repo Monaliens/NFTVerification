@@ -158,48 +158,6 @@ const sendVerificationInstructions = async (interaction, address) => {
         }
     }, 60000);
 };
-const updateAndDeleteMessage = async (interaction, content, durationSeconds = 120) => {
-    const endTime = Date.now() + (durationSeconds * 1000);
-    let remainingSeconds = durationSeconds;
-    await (content instanceof String || typeof content === 'string'
-        ? interaction.editReply({
-            content: `${content}\n\n_This message will be deleted in ${remainingSeconds} seconds_`,
-            ephemeral: true
-        })
-        : interaction.editReply({
-            ...content,
-            content: `_This message will be deleted in ${remainingSeconds} seconds_`,
-            ephemeral: true
-        }));
-    const updateInterval = setInterval(async () => {
-        try {
-            remainingSeconds = Math.ceil((endTime - Date.now()) / 1000);
-            if (remainingSeconds <= 0) {
-                clearInterval(updateInterval);
-                if (interaction.isRepliable()) {
-                    await interaction.deleteReply();
-                }
-                return;
-            }
-            if (interaction.isRepliable()) {
-                await (content instanceof String || typeof content === 'string'
-                    ? interaction.editReply({
-                        content: `${content}\n\n_This message will be deleted in ${remainingSeconds} seconds_`,
-                        ephemeral: true
-                    })
-                    : interaction.editReply({
-                        ...content,
-                        content: `_This message will be deleted in ${remainingSeconds} seconds_`,
-                        ephemeral: true
-                    }));
-            }
-        }
-        catch (error) {
-            clearInterval(updateInterval);
-            console.error('Error updating message:', error);
-        }
-    }, 5000);
-};
 client.on('ready', async () => {
     console.log(`Logged in as ${client.user?.tag}!`);
     try {
@@ -212,7 +170,12 @@ client.on('ready', async () => {
         console.log('Fetching previous messages...');
         const messages = await channel.messages.fetch({ limit: 100 });
         console.log(`Found ${messages.size} messages to delete`);
-        await channel.bulkDelete(messages);
+        const twoWeeksAgo = Date.now() - (14 * 24 * 60 * 60 * 1000);
+        const messagesToDelete = messages.filter(msg => msg.createdTimestamp > twoWeeksAgo);
+        if (messagesToDelete.size > 0) {
+            console.log(`Deleting ${messagesToDelete.size} messages...`);
+            await channel.bulkDelete(messagesToDelete);
+        }
         console.log('Sending verification message...');
         const message = await channel.send(createVerificationMessage());
         await message.pin();
@@ -241,6 +204,9 @@ client.on('interactionCreate', async (interaction) => {
     try {
         if (interaction.isButton()) {
             const buttonInteraction = interaction;
+            if (buttonInteraction.replied || buttonInteraction.deferred) {
+                return;
+            }
             switch (buttonInteraction.customId) {
                 case 'add_wallet': {
                     const modal = new discord_js_1.ModalBuilder()
@@ -262,22 +228,56 @@ client.on('interactionCreate', async (interaction) => {
                 }
                 case 'update_holdings':
                     await buttonInteraction.deferReply({ ephemeral: true });
-                    await discordService.updateMemberRoles(buttonInteraction.user.id);
-                    await updateAndDeleteMessage(buttonInteraction, 'Your roles have been updated based on your NFT holdings.', 60);
+                    try {
+                        await discordService.updateMemberRoles(buttonInteraction.user.id);
+                        await buttonInteraction.editReply({
+                            content: 'Your roles have been updated based on your NFT holdings.'
+                        });
+                        setTimeout(async () => {
+                            try {
+                                if (buttonInteraction.isRepliable()) {
+                                    await buttonInteraction.deleteReply();
+                                }
+                            }
+                            catch (error) {
+                                console.error('Error deleting roles update message:', error);
+                            }
+                        }, 60000);
+                    }
+                    catch (error) {
+                        console.error('Error updating roles:', error);
+                        await buttonInteraction.editReply({
+                            content: 'An error occurred while updating your roles. Please try again.'
+                        });
+                    }
                     break;
                 case 'list_wallets': {
-                    const wallets = await database_1.db.getWallets(buttonInteraction.user.id);
-                    const embed = await createWalletListEmbed(wallets);
-                    const row = createWalletActionRow(wallets);
-                    await buttonInteraction.reply({
-                        embeds: [embed],
-                        components: [row],
-                        ephemeral: true
-                    });
-                    await updateAndDeleteMessage(buttonInteraction, {
-                        embeds: [embed],
-                        components: [row]
-                    }, 60);
+                    await buttonInteraction.deferReply({ ephemeral: true });
+                    try {
+                        const wallets = await database_1.db.getWallets(buttonInteraction.user.id);
+                        const embed = await createWalletListEmbed(wallets);
+                        const row = createWalletActionRow(wallets);
+                        await buttonInteraction.editReply({
+                            embeds: [embed],
+                            components: [row]
+                        });
+                        setTimeout(async () => {
+                            try {
+                                if (buttonInteraction.isRepliable()) {
+                                    await buttonInteraction.deleteReply();
+                                }
+                            }
+                            catch (error) {
+                                console.error('Error deleting wallet list message:', error);
+                            }
+                        }, 60000);
+                    }
+                    catch (error) {
+                        console.error('Error listing wallets:', error);
+                        await buttonInteraction.editReply({
+                            content: 'An error occurred while fetching your wallets. Please try again.'
+                        });
+                    }
                     break;
                 }
                 case 'select_wallet': {
@@ -409,16 +409,48 @@ client.on('interactionCreate', async (interaction) => {
         else if (interaction.isModalSubmit()) {
             if (interaction.customId === 'wallet_selection') {
                 await interaction.deferReply({ ephemeral: true });
-                const walletNumber = parseInt(interaction.fields.getTextInputValue('wallet_number'));
-                const wallets = await database_1.db.getWallets(interaction.user.id);
-                if (walletNumber < 1 || walletNumber > wallets.length) {
-                    await updateAndDeleteMessage(interaction, `❌ Invalid wallet number. Please choose between 1 and ${wallets.length}.`, 60);
-                    return;
+                try {
+                    const walletNumber = parseInt(interaction.fields.getTextInputValue('wallet_number'));
+                    const wallets = await database_1.db.getWallets(interaction.user.id);
+                    if (walletNumber < 1 || walletNumber > wallets.length) {
+                        await interaction.editReply({
+                            content: `❌ Invalid wallet number. Please choose between 1 and ${wallets.length}.`
+                        });
+                        setTimeout(async () => {
+                            try {
+                                if (interaction.isRepliable()) {
+                                    await interaction.deleteReply();
+                                }
+                            }
+                            catch (error) {
+                                console.error('Error deleting invalid wallet number message:', error);
+                            }
+                        }, 60000);
+                        return;
+                    }
+                    const selectedWallet = wallets[walletNumber - 1];
+                    await database_1.db.deleteWallet(interaction.user.id, selectedWallet.address);
+                    await discordService.updateMemberRoles(interaction.user.id);
+                    await interaction.editReply({
+                        content: `✅ Wallet \`${selectedWallet.address}\` has been removed.`
+                    });
+                    setTimeout(async () => {
+                        try {
+                            if (interaction.isRepliable()) {
+                                await interaction.deleteReply();
+                            }
+                        }
+                        catch (error) {
+                            console.error('Error deleting wallet removed message:', error);
+                        }
+                    }, 60000);
                 }
-                const selectedWallet = wallets[walletNumber - 1];
-                await database_1.db.deleteWallet(interaction.user.id, selectedWallet.address);
-                await discordService.updateMemberRoles(interaction.user.id);
-                await updateAndDeleteMessage(interaction, `✅ Wallet \`${selectedWallet.address}\` has been removed.`, 60);
+                catch (error) {
+                    console.error('Error handling wallet selection:', error);
+                    await interaction.editReply({
+                        content: 'An error occurred while processing your request. Please try again.'
+                    });
+                }
             }
             else if (interaction.customId === 'wallet_input') {
                 await interaction.deferReply({ ephemeral: true });
@@ -450,11 +482,18 @@ client.on('interactionCreate', async (interaction) => {
     }
     catch (error) {
         console.error('Error handling interaction:', error);
-        if (interaction.isRepliable() && !interaction.replied && !interaction.deferred) {
-            await interaction.reply({
-                content: 'An error occurred while processing your request.',
-                ephemeral: true
-            });
+        try {
+            if (interaction.isRepliable() &&
+                !interaction.replied &&
+                !interaction.deferred) {
+                await interaction.reply({
+                    content: 'An error occurred while processing your request.',
+                    ephemeral: true
+                });
+            }
+        }
+        catch (replyError) {
+            console.error('Error sending error response:', replyError);
         }
     }
 });

@@ -13,6 +13,7 @@ const envSchema = zod_1.z.object({
     DISCORD_GUILD_ID: zod_1.z.string(),
     WELCOME_CHANNEL_ID: zod_1.z.string(),
     DATABASE_URL: zod_1.z.string(),
+    BASE_URL: zod_1.z.string().default('https://api.monaliens.xyz'),
     VERIFICATION_WALLET_ADDRESS: zod_1.z.string(),
     BLOCKVISION_API_KEY: zod_1.z.string(),
     NFT_CONTRACT_ADDRESS: zod_1.z.string(),
