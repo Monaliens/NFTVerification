@@ -40,6 +40,7 @@ export class DiscordService {
 
     if (!verifiedRole || !holderRole || !waitingRoomRole) {
       console.error('Required roles not found');
+      console.error(verifiedRole, holderRole, waitingRoomRole);
       return;
     }
 

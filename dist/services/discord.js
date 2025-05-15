@@ -38,6 +38,7 @@ class DiscordService {
         const waitingRoomRole = await this.getRole(config_1.config.WAITING_ROOM_ROLE_ID);
         if (!verifiedRole || !holderRole || !waitingRoomRole) {
             console.error('Required roles not found');
+            console.error(verifiedRole, holderRole, waitingRoomRole);
             return;
         }
         const hasVerifiedWallet = await database_1.db.hasVerifiedWallet(discordId);
