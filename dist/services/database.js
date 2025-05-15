@@ -47,14 +47,6 @@ class DatabaseService {
         try {
             const status = await this.getWalletStatus(normalizedAddress);
             
-            // If wallet exists and is verified by another user, reject
-            if (status.exists && status.isVerified && status.ownerId !== discordId) {
-                return {
-                    success: false,
-                    error: 'This wallet is already verified by another user.'
-                };
-            }
-            
             // If wallet already belongs to this user, return success
             if (status.exists && status.ownerId === discordId) {
                 return { success: true, message: 'This wallet is already registered to your account.' };
@@ -70,20 +62,25 @@ class DatabaseService {
                 });
             }
             
-            // If wallet exists but is not verified, transfer ownership
-            if (status.exists && !status.isVerified) {
+            // If wallet exists (verified or not), transfer ownership
+            if (status.exists) {
                 const wallet = await this.prisma.wallet.findUnique({
                     where: { address: normalizedAddress }
                 });
                 
                 await this.prisma.wallet.update({
                     where: { address: normalizedAddress },
-                    data: { userId: user.id }
+                    data: { 
+                        userId: user.id,
+                        // If it was verified before, keep it verified
+                        isVerified: status.isVerified 
+                    }
                 });
                 
+                const wasVerified = status.isVerified ? 'verified ' : '';
                 return { 
                     success: true, 
-                    message: 'This wallet was reassigned to your account.' 
+                    message: `This ${wasVerified}wallet was reassigned to your account.` 
                 };
             }
             

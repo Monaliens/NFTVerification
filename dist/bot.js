@@ -469,6 +469,15 @@ client.on('interactionCreate', async (interaction) => {
                         });
                         return;
                     }
+                    
+                    // Check if wallet was already registered (message exists in result)
+                    if (result.message) {
+                        await interaction.editReply({
+                            content: `✅ ${result.message}`
+                        });
+                        return;
+                    }
+                    
                     await sendVerificationInstructions(interaction, address);
                 }
                 catch (error) {
