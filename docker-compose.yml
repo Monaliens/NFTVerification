@@ -4,12 +4,16 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - DATABASE_URL=${MONGODB_URI}
+        - MONGODB_URI=${MONGODB_URI}
     container_name: nft_verification_bot
     restart: always
     env_file:
       - .env
     environment:
       - DATABASE_URL=${MONGODB_URI}
+      - MONGODB_URI=${MONGODB_URI}
     volumes:
       - type: bind
         source: ./prisma
