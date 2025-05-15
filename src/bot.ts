@@ -158,17 +158,9 @@ const sendVerificationInstructions = async (interaction: ModalSubmitInteraction,
     components: [row],
     ephemeral: true
   } as InteractionEditReplyOptions);
-
-  // Delete the message after 2 minutes
-  setTimeout(async () => {
-    try {
-      if (interaction.isRepliable()) {
-        await interaction.deleteReply();
-      }
-    } catch (error) {
-      console.error('Error deleting verification message:', error);
-    }
-  }, 120000); // 2 minutes
+  
+  // No longer deleting this verification message to keep it persistent
+  // Verification instructions should remain visible to users
 
   // Set up automatic check after 1 minute
   setTimeout(async () => {
@@ -312,15 +304,25 @@ client.on('interactionCreate', async (interaction) => {
           try {
             await discordService.updateMemberRoles(buttonInteraction.user.id);
             
+            // Check if the interaction is still valid
+            if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+              console.log('Interaction no longer valid after role update, aborting');
+              return;
+            }
+            
             await buttonInteraction.editReply({
               content: 'Your roles have been updated based on your NFT holdings.'
+            }).catch(err => {
+              console.error('Failed to send role update message:', err.code);
             });
             
             // Delete message after 60 seconds
             setTimeout(async () => {
               try {
                 if (buttonInteraction.isRepliable()) {
-                  await buttonInteraction.deleteReply();
+                  await buttonInteraction.deleteReply().catch(err => {
+                    console.error('Failed to delete roles update message (likely expired):', err.code);
+                  });
                 }
               } catch (error) {
                 console.error('Error deleting roles update message:', error);
@@ -328,9 +330,15 @@ client.on('interactionCreate', async (interaction) => {
             }, 60000); // 60 seconds
           } catch (error) {
             console.error('Error updating roles:', error);
-            await buttonInteraction.editReply({
-              content: 'An error occurred while updating your roles. Please try again.'
-            });
+            
+            // Only attempt to edit if the interaction is still valid
+            if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+              await buttonInteraction.editReply({
+                content: 'An error occurred while updating your roles. Please try again.'
+              }).catch(err => {
+                console.error('Failed to send role update error message:', err.code);
+              });
+            }
           }
           break;
 
@@ -342,26 +350,38 @@ client.on('interactionCreate', async (interaction) => {
             const embed = await createWalletListEmbed(wallets);
             const row = createWalletActionRow(wallets);
             
-            await buttonInteraction.editReply({
-              embeds: [embed],
-              components: [row]
-            });
-            
-            // Delete message after 60 seconds
-            setTimeout(async () => {
-              try {
-                if (buttonInteraction.isRepliable()) {
-                  await buttonInteraction.deleteReply();
+            // Check if the interaction is still valid before replying
+            if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+              await buttonInteraction.editReply({
+                embeds: [embed],
+                components: [row]
+              });
+              
+              // Delete message after 60 seconds
+              setTimeout(async () => {
+                try {
+                  // Double-check if the interaction is still repliable before attempting to delete
+                  if (buttonInteraction.isRepliable()) {
+                    await buttonInteraction.deleteReply().catch(err => {
+                      console.error('Failed to delete reply (likely expired):', err.code);
+                    });
+                  }
+                } catch (error) {
+                  console.error('Error deleting wallet list message:', error);
                 }
-              } catch (error) {
-                console.error('Error deleting wallet list message:', error);
-              }
-            }, 60000); // 60 seconds
+              }, 60000); // 60 seconds
+            }
           } catch (error) {
             console.error('Error listing wallets:', error);
-            await buttonInteraction.editReply({
-              content: 'An error occurred while fetching your wallets. Please try again.'
-            });
+            
+            // Only try to edit the reply if the interaction is still valid
+            if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+              await buttonInteraction.editReply({
+                content: 'An error occurred while fetching your wallets. Please try again.'
+              }).catch(err => {
+                console.error('Failed to send error message:', err.code);
+              });
+            }
           }
           break;
         }
@@ -395,98 +415,135 @@ client.on('interactionCreate', async (interaction) => {
             await buttonInteraction.deferReply({ ephemeral: true });
             const address = buttonInteraction.customId.split('_')[2];
             
-            // First check if the wallet is already verified
-            const isVerified = await db.hasVerifiedWallet(buttonInteraction.user.id);
-            if (isVerified) {
-              const alreadyVerifiedEmbed = new EmbedBuilder()
-                .setColor('#00ff00')
-                .setTitle('Already Verified')
-                .setDescription('✅ Your wallet is already verified!')
-                .setTimestamp();
-
-              await buttonInteraction.editReply({
-                embeds: [alreadyVerifiedEmbed],
-                components: [],
-                ephemeral: true
-              } as InteractionEditReplyOptions);
-
-              // Delete message after 2 minutes
-              setTimeout(async () => {
-                try {
-                  if (buttonInteraction.isRepliable()) {
-                    await buttonInteraction.deleteReply();
-                  }
-                } catch (error) {
-                  console.error('Error deleting already verified message:', error);
-                }
-              }, 120000);
-              return;
-            }
-
-            const hasReceived = await nftService.hasReceivedPayment(address);
-            if (hasReceived) {
-              await db.verifyWallet(address);
-              await discordService.updateMemberRoles(buttonInteraction.user.id);
+            try {
+              // First check if the wallet is already verified
+              const isVerified = await db.hasVerifiedWallet(buttonInteraction.user.id);
               
-              const successEmbed = new EmbedBuilder()
-                .setColor('#00ff00')
-                .setTitle('Verification Complete')
-                .setDescription('✅ Your wallet has been verified successfully!')
-                .setTimestamp();
+              // Check if interaction is still valid
+              if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                console.log('Interaction no longer valid, aborting check_payment handler');
+                return;
+              }
+              
+              if (isVerified) {
+                const alreadyVerifiedEmbed = new EmbedBuilder()
+                  .setColor('#00ff00')
+                  .setTitle('Already Verified')
+                  .setDescription('✅ Your wallet is already verified!')
+                  .setTimestamp();
 
-              await buttonInteraction.editReply({
-                embeds: [successEmbed],
-                components: [],
-                ephemeral: true
-              } as InteractionEditReplyOptions);
+                await buttonInteraction.editReply({
+                  embeds: [alreadyVerifiedEmbed],
+                  components: [],
+                  ephemeral: true
+                } as InteractionEditReplyOptions);
 
-              // Delete success message after 2 minutes
-              setTimeout(async () => {
-                try {
-                  if (buttonInteraction.isRepliable()) {
-                    await buttonInteraction.deleteReply();
+                // Delete message after 2 minutes
+                setTimeout(async () => {
+                  try {
+                    if (buttonInteraction.isRepliable()) {
+                      await buttonInteraction.deleteReply().catch(err => {
+                        console.error('Failed to delete already verified message (likely expired):', err.code);
+                      });
+                    }
+                  } catch (error) {
+                    console.error('Error deleting already verified message:', error);
                   }
-                } catch (error) {
-                  console.error('Error deleting success message:', error);
-                }
-              }, 120000); // 2 minutes
-            } else {
-              const verificationAmount = nftService.getVerificationAmount(address);
-              const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
+                }, 120000);
+                return;
+              }
 
-              const pendingEmbed = new EmbedBuilder()
-                .setColor('#ff9900')
-                .setTitle('Payment Not Found')
-                .setDescription('❌ Payment not found yet. Please make sure you:\n' +
-                  `1. Sent exactly ${amountInMON} $MON\n` +
-                  '2. Sent from your registered wallet\n' +
-                  '3. Sent it back to the same wallet (self-transfer)')
-                .setTimestamp();
+              const hasReceived = await nftService.hasReceivedPayment(address);
+              
+              // Check again if interaction is still valid
+              if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                console.log('Interaction no longer valid after payment check, aborting');
+                return;
+              }
+              
+              if (hasReceived) {
+                await db.verifyWallet(address);
+                await discordService.updateMemberRoles(buttonInteraction.user.id);
+                
+                const successEmbed = new EmbedBuilder()
+                  .setColor('#00ff00')
+                  .setTitle('Verification Complete')
+                  .setDescription('✅ Your wallet has been verified successfully!')
+                  .setTimestamp();
 
-              const checkButton = new ButtonBuilder()
-                .setCustomId(`check_payment_${address}`)
-                .setLabel('Check Again')
-                .setStyle(ButtonStyle.Primary);
+                await buttonInteraction.editReply({
+                  embeds: [successEmbed],
+                  components: [],
+                  ephemeral: true
+                } as InteractionEditReplyOptions).catch(err => {
+                  console.error('Failed to send success message:', err.code);
+                });
 
-              const row = new ActionRowBuilder<ButtonBuilder>()
-                .addComponents(checkButton);
-
-              await buttonInteraction.editReply({
-                embeds: [pendingEmbed],
-                components: [row],
-                ephemeral: true
-              } as InteractionEditReplyOptions);
-
-              // Delete error message after 2 minutes
-              setTimeout(async () => {
-                try {
-                  if (buttonInteraction.isRepliable()) {
-                    await buttonInteraction.deleteReply();
+                // Delete success message after 2 minutes
+                setTimeout(async () => {
+                  try {
+                    if (buttonInteraction.isRepliable()) {
+                      await buttonInteraction.deleteReply().catch(err => {
+                        console.error('Failed to delete success message (likely expired):', err.code);
+                      });
+                    }
+                  } catch (error) {
+                    console.error('Error deleting success message:', error);
                   }
-                } catch (error) {
-                  console.error('Error deleting error message:', error);
-                }
-              }, 120000); // 2 minutes
+                }, 120000); // 2 minutes
+              } else {
+                const verificationAmount = nftService.getVerificationAmount(address);
+                const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
+
+                const pendingEmbed = new EmbedBuilder()
+                  .setColor('#ff9900')
+                  .setTitle('Payment Not Found')
+                  .setDescription('❌ Payment not found yet. Please make sure you:\n' +
+                    `1. Sent exactly ${amountInMON} $MON\n` +
+                    '2. Sent from your registered wallet\n' +
+                    '3. Sent it back to the same wallet (self-transfer)')
+                  .setTimestamp();
+
+                const checkButton = new ButtonBuilder()
+                  .setCustomId(`check_payment_${address}`)
+                  .setLabel('Check Again')
+                  .setStyle(ButtonStyle.Primary);
+
+                const row = new ActionRowBuilder<ButtonBuilder>()
+                  .addComponents(checkButton);
+
+                await buttonInteraction.editReply({
+                  embeds: [pendingEmbed],
+                  components: [row],
+                  ephemeral: true
+                } as InteractionEditReplyOptions).catch(err => {
+                  console.error('Failed to send pending message:', err.code);
+                });
+
+                // Delete error message after 2 minutes
+                setTimeout(async () => {
+                  try {
+                    if (buttonInteraction.isRepliable()) {
+                      await buttonInteraction.deleteReply().catch(err => {
+                        console.error('Failed to delete error message (likely expired):', err.code);
+                      });
+                    }
+                  } catch (error) {
+                    console.error('Error deleting error message:', error);
+                  }
+                }, 120000); // 2 minutes
+              }
+            } catch (error) {
+              console.error('Error in check_payment handler:', error);
+              
+              // Only try to edit reply if the interaction is still valid
+              if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+                await buttonInteraction.editReply({
+                  content: 'An error occurred while processing your payment verification. Please try again.'
+                }).catch(err => {
+                  console.error('Failed to send check_payment error message:', err.code);
+                });
+              }
             }
           } else if (buttonInteraction.customId.startsWith('delete_')) {
             const address = buttonInteraction.customId.replace('delete_', '');
@@ -598,20 +655,30 @@ client.on('interactionCreate', async (interaction) => {
   } catch (error) {
     console.error('Error handling interaction:', error);
     
-    // Only try to reply if the interaction hasn't been acknowledged yet
+    // Improved error handling - check more carefully whether we can respond
     try {
       if (
         interaction.isRepliable() && 
         !interaction.replied && 
-        !interaction.deferred
+        !interaction.deferred &&
+        interaction.constructor.name !== 'ModalSubmitInteraction' // Don't attempt to reply to modal submits in error handler
       ) {
         await interaction.reply({
           content: 'An error occurred while processing your request.',
           ephemeral: true
         });
+      } else if (
+        interaction.isRepliable() && 
+        (interaction.deferred && !interaction.replied)
+      ) {
+        // If interaction was deferred but not replied to yet
+        await interaction.editReply({
+          content: 'An error occurred while processing your request.'
+        });
       }
     } catch (replyError) {
       console.error('Error sending error response:', replyError);
+      // Don't attempt any further responses
     }
   }
 });
