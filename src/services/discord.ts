@@ -36,11 +36,10 @@ export class DiscordService {
 
     const verifiedRole = await this.getRole(config.VERIFIED_ROLE_ID);
     const holderRole = await this.getRole(config.HOLDER_ROLE_ID);
-    const waitingRoomRole = await this.getRole(config.WAITING_ROOM_ROLE_ID);
 
-    if (!verifiedRole || !holderRole || !waitingRoomRole) {
+    if (!verifiedRole || !holderRole) {
       console.error('Required roles not found');
-      console.error(verifiedRole?.id, holderRole?.id, waitingRoomRole?.id);
+      console.error(verifiedRole?.id, holderRole?.id);
       return;
     }
 
@@ -57,13 +56,7 @@ export class DiscordService {
       if (!member.roles.cache.has(verifiedRole.id)) {
         await member.roles.add(verifiedRole);
       }
-      if (member.roles.cache.has(waitingRoomRole.id)) {
-        await member.roles.remove(waitingRoomRole);
-      }
     } else {
-      if (!member.roles.cache.has(waitingRoomRole.id)) {
-        await member.roles.add(waitingRoomRole);
-      }
       if (member.roles.cache.has(verifiedRole.id)) {
         await member.roles.remove(verifiedRole);
       }

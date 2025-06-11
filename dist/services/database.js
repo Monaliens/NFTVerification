@@ -46,13 +46,15 @@ class DatabaseService {
         const normalizedAddress = address.toLowerCase();
         try {
             const status = await this.getWalletStatus(normalizedAddress);
-            
-            // If wallet already belongs to this user, return success
-            if (status.exists && status.ownerId === discordId) {
-                return { success: true, message: 'This wallet is already registered to your account.' };
+            if (status.exists && status.isVerified && status.ownerId !== discordId) {
+                return {
+                    success: false,
+                    error: 'This wallet is already verified by another user.'
+                };
             }
-            
-            // Get the current user or create if doesn't exist
+            if (status.exists && !status.isVerified) {
+                await this.forceDeleteWallet(normalizedAddress);
+            }
             let user = await this.prisma.user.findUnique({
                 where: { discordId }
             });
@@ -61,30 +63,6 @@ class DatabaseService {
                     data: { discordId }
                 });
             }
-            
-            // If wallet exists (verified or not), transfer ownership
-            if (status.exists) {
-                const wallet = await this.prisma.wallet.findUnique({
-                    where: { address: normalizedAddress }
-                });
-                
-                await this.prisma.wallet.update({
-                    where: { address: normalizedAddress },
-                    data: { 
-                        userId: user.id,
-                        // If it was verified before, keep it verified
-                        isVerified: status.isVerified 
-                    }
-                });
-                
-                const wasVerified = status.isVerified ? 'verified ' : '';
-                return { 
-                    success: true, 
-                    message: `This ${wasVerified}wallet was reassigned to your account.` 
-                };
-            }
-            
-            // Create new wallet record
             await this.prisma.wallet.create({
                 data: {
                     address: normalizedAddress,
@@ -92,9 +70,9 @@ class DatabaseService {
                     userId: user.id
                 }
             });
-            
             return { success: true };
-        } catch (error) {
+        }
+        catch (error) {
             console.error('Error in addWallet:', error);
             return {
                 success: false,

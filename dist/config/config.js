@@ -19,7 +19,6 @@ const envSchema = zod_1.z.object({
     NFT_CONTRACT_ADDRESS: zod_1.z.string(),
     VERIFIED_ROLE_ID: zod_1.z.string(),
     HOLDER_ROLE_ID: zod_1.z.string(),
-    WAITING_ROOM_ROLE_ID: zod_1.z.string(),
 });
 const parseEnv = () => {
     const parsed = envSchema.safeParse(process.env);

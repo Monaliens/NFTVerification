@@ -112,16 +112,6 @@ const sendVerificationInstructions = async (interaction, address) => {
     });
     setTimeout(async () => {
         try {
-            if (interaction.isRepliable()) {
-                await interaction.deleteReply();
-            }
-        }
-        catch (error) {
-            console.error('Error deleting verification message:', error);
-        }
-    }, 120000);
-    setTimeout(async () => {
-        try {
             const isVerified = await database_1.db.hasVerifiedWallet(interaction.user.id);
             if (isVerified) {
                 console.log('Wallet already verified, skipping automatic check');
@@ -230,13 +220,21 @@ client.on('interactionCreate', async (interaction) => {
                     await buttonInteraction.deferReply({ ephemeral: true });
                     try {
                         await discordService.updateMemberRoles(buttonInteraction.user.id);
+                        if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                            console.log('Interaction no longer valid after role update, aborting');
+                            return;
+                        }
                         await buttonInteraction.editReply({
                             content: 'Your roles have been updated based on your NFT holdings.'
+                        }).catch(err => {
+                            console.error('Failed to send role update message:', err.code);
                         });
                         setTimeout(async () => {
                             try {
                                 if (buttonInteraction.isRepliable()) {
-                                    await buttonInteraction.deleteReply();
+                                    await buttonInteraction.deleteReply().catch(err => {
+                                        console.error('Failed to delete roles update message (likely expired):', err.code);
+                                    });
                                 }
                             }
                             catch (error) {
@@ -246,9 +244,13 @@ client.on('interactionCreate', async (interaction) => {
                     }
                     catch (error) {
                         console.error('Error updating roles:', error);
-                        await buttonInteraction.editReply({
-                            content: 'An error occurred while updating your roles. Please try again.'
-                        });
+                        if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+                            await buttonInteraction.editReply({
+                                content: 'An error occurred while updating your roles. Please try again.'
+                            }).catch(err => {
+                                console.error('Failed to send role update error message:', err.code);
+                            });
+                        }
                     }
                     break;
                 case 'list_wallets': {
@@ -257,26 +259,34 @@ client.on('interactionCreate', async (interaction) => {
                         const wallets = await database_1.db.getWallets(buttonInteraction.user.id);
                         const embed = await createWalletListEmbed(wallets);
                         const row = createWalletActionRow(wallets);
-                        await buttonInteraction.editReply({
-                            embeds: [embed],
-                            components: [row]
-                        });
-                        setTimeout(async () => {
-                            try {
-                                if (buttonInteraction.isRepliable()) {
-                                    await buttonInteraction.deleteReply();
+                        if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+                            await buttonInteraction.editReply({
+                                embeds: [embed],
+                                components: [row]
+                            });
+                            setTimeout(async () => {
+                                try {
+                                    if (buttonInteraction.isRepliable()) {
+                                        await buttonInteraction.deleteReply().catch(err => {
+                                            console.error('Failed to delete reply (likely expired):', err.code);
+                                        });
+                                    }
                                 }
-                            }
-                            catch (error) {
-                                console.error('Error deleting wallet list message:', error);
-                            }
-                        }, 60000);
+                                catch (error) {
+                                    console.error('Error deleting wallet list message:', error);
+                                }
+                            }, 60000);
+                        }
                     }
                     catch (error) {
                         console.error('Error listing wallets:', error);
-                        await buttonInteraction.editReply({
-                            content: 'An error occurred while fetching your wallets. Please try again.'
-                        });
+                        if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+                            await buttonInteraction.editReply({
+                                content: 'An error occurred while fetching your wallets. Please try again.'
+                            }).catch(err => {
+                                console.error('Failed to send error message:', err.code);
+                            });
+                        }
                     }
                     break;
                 }
@@ -303,87 +313,117 @@ client.on('interactionCreate', async (interaction) => {
                     if (buttonInteraction.customId.startsWith('check_payment_')) {
                         await buttonInteraction.deferReply({ ephemeral: true });
                         const address = buttonInteraction.customId.split('_')[2];
-                        const isVerified = await database_1.db.hasVerifiedWallet(buttonInteraction.user.id);
-                        if (isVerified) {
-                            const alreadyVerifiedEmbed = new discord_js_1.EmbedBuilder()
-                                .setColor('#00ff00')
-                                .setTitle('Already Verified')
-                                .setDescription('✅ Your wallet is already verified!')
-                                .setTimestamp();
-                            await buttonInteraction.editReply({
-                                embeds: [alreadyVerifiedEmbed],
-                                components: [],
-                                ephemeral: true
-                            });
-                            setTimeout(async () => {
-                                try {
-                                    if (buttonInteraction.isRepliable()) {
-                                        await buttonInteraction.deleteReply();
+                        try {
+                            const isVerified = await database_1.db.hasVerifiedWallet(buttonInteraction.user.id);
+                            if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                                console.log('Interaction no longer valid, aborting check_payment handler');
+                                return;
+                            }
+                            if (isVerified) {
+                                const alreadyVerifiedEmbed = new discord_js_1.EmbedBuilder()
+                                    .setColor('#00ff00')
+                                    .setTitle('Already Verified')
+                                    .setDescription('✅ Your wallet is already verified!')
+                                    .setTimestamp();
+                                await buttonInteraction.editReply({
+                                    embeds: [alreadyVerifiedEmbed],
+                                    components: [],
+                                    ephemeral: true
+                                });
+                                setTimeout(async () => {
+                                    try {
+                                        if (buttonInteraction.isRepliable()) {
+                                            await buttonInteraction.deleteReply().catch(err => {
+                                                console.error('Failed to delete already verified message (likely expired):', err.code);
+                                            });
+                                        }
                                     }
-                                }
-                                catch (error) {
-                                    console.error('Error deleting already verified message:', error);
-                                }
-                            }, 120000);
-                            return;
+                                    catch (error) {
+                                        console.error('Error deleting already verified message:', error);
+                                    }
+                                }, 120000);
+                                return;
+                            }
+                            const hasReceived = await nft_1.nftService.hasReceivedPayment(address);
+                            if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                                console.log('Interaction no longer valid after payment check, aborting');
+                                return;
+                            }
+                            if (hasReceived) {
+                                await database_1.db.verifyWallet(address);
+                                await discordService.updateMemberRoles(buttonInteraction.user.id);
+                                const successEmbed = new discord_js_1.EmbedBuilder()
+                                    .setColor('#00ff00')
+                                    .setTitle('Verification Complete')
+                                    .setDescription('✅ Your wallet has been verified successfully!')
+                                    .setTimestamp();
+                                await buttonInteraction.editReply({
+                                    embeds: [successEmbed],
+                                    components: [],
+                                    ephemeral: true
+                                }).catch(err => {
+                                    console.error('Failed to send success message:', err.code);
+                                });
+                                setTimeout(async () => {
+                                    try {
+                                        if (buttonInteraction.isRepliable()) {
+                                            await buttonInteraction.deleteReply().catch(err => {
+                                                console.error('Failed to delete success message (likely expired):', err.code);
+                                            });
+                                        }
+                                    }
+                                    catch (error) {
+                                        console.error('Error deleting success message:', error);
+                                    }
+                                }, 120000);
+                            }
+                            else {
+                                const verificationAmount = nft_1.nftService.getVerificationAmount(address);
+                                const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
+                                const pendingEmbed = new discord_js_1.EmbedBuilder()
+                                    .setColor('#ff9900')
+                                    .setTitle('Payment Not Found')
+                                    .setDescription('❌ Payment not found yet. Please make sure you:\n' +
+                                    `1. Sent exactly ${amountInMON} $MON\n` +
+                                    '2. Sent from your registered wallet\n' +
+                                    '3. Sent it back to the same wallet (self-transfer)')
+                                    .setTimestamp();
+                                const checkButton = new discord_js_1.ButtonBuilder()
+                                    .setCustomId(`check_payment_${address}`)
+                                    .setLabel('Check Again')
+                                    .setStyle(discord_js_1.ButtonStyle.Primary);
+                                const row = new discord_js_1.ActionRowBuilder()
+                                    .addComponents(checkButton);
+                                await buttonInteraction.editReply({
+                                    embeds: [pendingEmbed],
+                                    components: [row],
+                                    ephemeral: true
+                                }).catch(err => {
+                                    console.error('Failed to send pending message:', err.code);
+                                });
+                                setTimeout(async () => {
+                                    try {
+                                        if (buttonInteraction.isRepliable()) {
+                                            await buttonInteraction.deleteReply().catch(err => {
+                                                console.error('Failed to delete error message (likely expired):', err.code);
+                                            });
+                                        }
+                                    }
+                                    catch (error) {
+                                        console.error('Error deleting error message:', error);
+                                    }
+                                }, 120000);
+                            }
                         }
-                        const hasReceived = await nft_1.nftService.hasReceivedPayment(address);
-                        if (hasReceived) {
-                            await database_1.db.verifyWallet(address);
-                            await discordService.updateMemberRoles(buttonInteraction.user.id);
-                            const successEmbed = new discord_js_1.EmbedBuilder()
-                                .setColor('#00ff00')
-                                .setTitle('Verification Complete')
-                                .setDescription('✅ Your wallet has been verified successfully!')
-                                .setTimestamp();
-                            await buttonInteraction.editReply({
-                                embeds: [successEmbed],
-                                components: [],
-                                ephemeral: true
-                            });
-                            setTimeout(async () => {
-                                try {
-                                    if (buttonInteraction.isRepliable()) {
-                                        await buttonInteraction.deleteReply();
-                                    }
-                                }
-                                catch (error) {
-                                    console.error('Error deleting success message:', error);
-                                }
-                            }, 120000);
-                        }
-                        else {
-                            const verificationAmount = nft_1.nftService.getVerificationAmount(address);
-                            const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
-                            const pendingEmbed = new discord_js_1.EmbedBuilder()
-                                .setColor('#ff9900')
-                                .setTitle('Payment Not Found')
-                                .setDescription('❌ Payment not found yet. Please make sure you:\n' +
-                                `1. Sent exactly ${amountInMON} $MON\n` +
-                                '2. Sent from your registered wallet\n' +
-                                '3. Sent it back to the same wallet (self-transfer)')
-                                .setTimestamp();
-                            const checkButton = new discord_js_1.ButtonBuilder()
-                                .setCustomId(`check_payment_${address}`)
-                                .setLabel('Check Again')
-                                .setStyle(discord_js_1.ButtonStyle.Primary);
-                            const row = new discord_js_1.ActionRowBuilder()
-                                .addComponents(checkButton);
-                            await buttonInteraction.editReply({
-                                embeds: [pendingEmbed],
-                                components: [row],
-                                ephemeral: true
-                            });
-                            setTimeout(async () => {
-                                try {
-                                    if (buttonInteraction.isRepliable()) {
-                                        await buttonInteraction.deleteReply();
-                                    }
-                                }
-                                catch (error) {
-                                    console.error('Error deleting error message:', error);
-                                }
-                            }, 120000);
+                        catch (error) {
+                            console.error('Error in check_payment handler:', error);
+                            if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+                                await buttonInteraction.editReply({
+                                    content: 'An error occurred while processing your payment verification. Please try again.'
+                                }).catch(err => {
+                                    console.error('Failed to send check_payment error message:', err.code);
+                                });
+                            }
                         }
                     }
                     else if (buttonInteraction.customId.startsWith('delete_')) {
@@ -469,15 +509,6 @@ client.on('interactionCreate', async (interaction) => {
                         });
                         return;
                     }
-                    
-                    // Check if wallet was already registered (message exists in result)
-                    if (result.message) {
-                        await interaction.editReply({
-                            content: `✅ ${result.message}`
-                        });
-                        return;
-                    }
-                    
                     await sendVerificationInstructions(interaction, address);
                 }
                 catch (error) {
@@ -494,10 +525,17 @@ client.on('interactionCreate', async (interaction) => {
         try {
             if (interaction.isRepliable() &&
                 !interaction.replied &&
-                !interaction.deferred) {
+                !interaction.deferred &&
+                interaction.constructor.name !== 'ModalSubmitInteraction') {
                 await interaction.reply({
                     content: 'An error occurred while processing your request.',
                     ephemeral: true
+                });
+            }
+            else if (interaction.isRepliable() &&
+                (interaction.deferred && !interaction.replied)) {
+                await interaction.editReply({
+                    content: 'An error occurred while processing your request.'
                 });
             }
         }

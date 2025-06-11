@@ -23,7 +23,6 @@ const envSchema = z.object({
   // Discord Role IDs
   VERIFIED_ROLE_ID: z.string(),
   HOLDER_ROLE_ID: z.string(),
-  WAITING_ROOM_ROLE_ID: z.string(),
 });
 
 type Config = z.infer<typeof envSchema>;
