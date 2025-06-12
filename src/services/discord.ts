@@ -51,15 +51,9 @@ export class DiscordService {
         .map(wallet => nftService.isHolder(wallet.address))
     ).catch(() => false);
 
-    // Update roles
-    if (hasVerifiedWallet) {
-      if (!member.roles.cache.has(verifiedRole.id)) {
-        await member.roles.add(verifiedRole);
-      }
-    } else {
-      if (member.roles.cache.has(verifiedRole.id)) {
-        await member.roles.remove(verifiedRole);
-      }
+    // Update verified role - Only add, never remove
+    if (hasVerifiedWallet && !member.roles.cache.has(verifiedRole.id)) {
+      await member.roles.add(verifiedRole);
     }
 
     // Update holder role

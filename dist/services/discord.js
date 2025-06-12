@@ -45,15 +45,8 @@ class DiscordService {
         const isHolder = await Promise.any(wallets
             .filter(wallet => wallet.isVerified)
             .map(wallet => nft_1.nftService.isHolder(wallet.address))).catch(() => false);
-        if (hasVerifiedWallet) {
-            if (!member.roles.cache.has(verifiedRole.id)) {
-                await member.roles.add(verifiedRole);
-            }
-        }
-        else {
-            if (member.roles.cache.has(verifiedRole.id)) {
-                await member.roles.remove(verifiedRole);
-            }
+        if (hasVerifiedWallet && !member.roles.cache.has(verifiedRole.id)) {
+            await member.roles.add(verifiedRole);
         }
         if (hasVerifiedWallet && isHolder && !member.roles.cache.has(holderRole.id)) {
             await member.roles.add(holderRole);
