@@ -24,6 +24,7 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
   ],
 });
 
@@ -209,42 +210,34 @@ const sendVerificationInstructions = async (interaction: ModalSubmitInteraction,
 
 // Event handlers
 client.on('ready', async () => {
-  console.log(`Logged in as ${client.user?.tag}!`);
+  console.log(`🚀 ${client.user?.tag} is online!`);
   
   try {
-    console.log('Fetching guild...');
     const guild = await client.guilds.fetch(config.DISCORD_GUILD_ID);
-    console.log('Guild found:', guild.name);
-    
-    console.log('Fetching channel...');
     const channel = await guild.channels.fetch(config.WELCOME_CHANNEL_ID) as TextChannel;
-    console.log('Channel found:', channel.name);
     
-    console.log('Fetching previous messages...');
     const messages = await channel.messages.fetch({ limit: 100 });
-    console.log(`Found ${messages.size} messages to delete`);
 
     // Delete messages that are less than 14 days old
     const twoWeeksAgo = Date.now() - (14 * 24 * 60 * 60 * 1000);
     const messagesToDelete = messages.filter(msg => msg.createdTimestamp > twoWeeksAgo);
     
     if (messagesToDelete.size > 0) {
-      console.log(`Deleting ${messagesToDelete.size} messages...`);
       await channel.bulkDelete(messagesToDelete);
     }
     
-    console.log('Sending verification message...');
     const message = await channel.send(createVerificationMessage());
     await message.pin();
-    console.log('Message sent and pinned successfully!');
+    console.log('📢 Verification system ready!');
 
-    // Start periodic holder updates
+    // Start periodic holder updates every 15 minutes
     setInterval(async () => {
+      console.log('⏰ Checking NFT holders...');
       const updated = await nftService.updateHoldersCache();
       if (updated) {
         await discordService.updateAllUsersRoles();
       }
-    }, 10 * 60 * 1000); // 10 minutes
+    }, 15 * 60 * 1000); // 15 minutes
 
     // Do initial role update
     await discordService.updateAllUsersRoles();

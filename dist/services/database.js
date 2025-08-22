@@ -186,6 +186,80 @@ class DatabaseService {
         }));
         return wallets;
     }
+    async updateCollectionHolders(collectionHolders) {
+        try {
+            await this.prisma.collectionHolding.deleteMany({});
+            const holderAddresses = [...new Set(collectionHolders.map(h => h.address))];
+            for (const address of holderAddresses) {
+                await this.prisma.holder.upsert({
+                    where: { address },
+                    create: {
+                        address,
+                        tokenCount: 0,
+                        tokens: [],
+                        lastUpdated: new Date()
+                    },
+                    update: { lastUpdated: new Date() }
+                });
+            }
+            if (collectionHolders.length > 0) {
+                for (const holding of collectionHolders) {
+                    const holder = await this.prisma.holder.findUnique({
+                        where: { address: holding.address }
+                    });
+                    if (holder) {
+                        await this.prisma.collectionHolding.create({
+                            data: {
+                                address: holding.address,
+                                contractAddress: holding.contractAddress,
+                                tokenCount: holding.tokenCount,
+                                tokens: holding.tokens,
+                                holderId: holder.id,
+                                lastUpdated: new Date()
+                            }
+                        });
+                    }
+                }
+            }
+            console.log('Collection holders update completed successfully');
+        }
+        catch (error) {
+            console.error('Error updating collection holders:', error);
+            throw error;
+        }
+    }
+    async getCollectionHoldings(address) {
+        const holdings = await this.prisma.collectionHolding.findMany({
+            where: { address: address.toLowerCase() }
+        });
+        return holdings.map(holding => ({
+            contractAddress: holding.contractAddress,
+            tokenCount: holding.tokenCount,
+            tokens: holding.tokens
+        }));
+    }
+    async isHolderForCollection(address, contractAddress) {
+        const holding = await this.prisma.collectionHolding.findUnique({
+            where: {
+                address_contractAddress: {
+                    address: address.toLowerCase(),
+                    contractAddress: contractAddress.toLowerCase()
+                }
+            }
+        });
+        return !!holding;
+    }
+    async getTokenCountForCollection(address, contractAddress) {
+        const holding = await this.prisma.collectionHolding.findUnique({
+            where: {
+                address_contractAddress: {
+                    address: address.toLowerCase(),
+                    contractAddress: contractAddress.toLowerCase()
+                }
+            }
+        });
+        return holding?.tokenCount || 0;
+    }
 }
 exports.db = new DatabaseService();
 //# sourceMappingURL=database.js.map

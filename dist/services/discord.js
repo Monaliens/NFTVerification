@@ -34,25 +34,46 @@ class DiscordService {
         if (!member)
             return;
         const verifiedRole = await this.getRole(config_1.config.VERIFIED_ROLE_ID);
-        const holderRole = await this.getRole(config_1.config.HOLDER_ROLE_ID);
-        if (!verifiedRole || !holderRole) {
-            console.error('Required roles not found');
-            console.error(verifiedRole?.id, holderRole?.id);
+        if (!verifiedRole) {
+            console.error('Verified role not found');
             return;
         }
         const hasVerifiedWallet = await database_1.db.hasVerifiedWallet(discordId);
         const wallets = await database_1.db.getUserWallets(discordId);
-        const isHolder = await Promise.any(wallets
-            .filter(wallet => wallet.isVerified)
-            .map(wallet => nft_1.nftService.isHolder(wallet.address))).catch(() => false);
         if (hasVerifiedWallet && !member.roles.cache.has(verifiedRole.id)) {
             await member.roles.add(verifiedRole);
         }
-        if (hasVerifiedWallet && isHolder && !member.roles.cache.has(holderRole.id)) {
-            await member.roles.add(holderRole);
+        const allEligibleRoles = new Set();
+        for (const wallet of wallets.filter(w => w.isVerified)) {
+            const eligibleRoles = await nft_1.nftService.getEligibleRoles(wallet.address);
+            eligibleRoles.forEach(roleId => allEligibleRoles.add(roleId));
         }
-        else if ((!hasVerifiedWallet || !isHolder) && member.roles.cache.has(holderRole.id)) {
-            await member.roles.remove(holderRole);
+        const allCollectionRoleIds = config_1.config.NFT_COLLECTIONS.map(c => c.roleId);
+        if (config_1.config.HOLDER_ROLE_ID) {
+            allCollectionRoleIds.push(config_1.config.HOLDER_ROLE_ID);
+            const isLegacyHolder = await Promise.any(wallets
+                .filter(wallet => wallet.isVerified)
+                .map(wallet => nft_1.nftService.isHolder(wallet.address))).catch(() => false);
+            if (isLegacyHolder) {
+                allEligibleRoles.add(config_1.config.HOLDER_ROLE_ID);
+            }
+        }
+        for (const roleId of allCollectionRoleIds) {
+            const role = await this.getRole(roleId);
+            if (!role) {
+                console.error(`Role not found: ${roleId}`);
+                continue;
+            }
+            const hasRole = member.roles.cache.has(roleId);
+            const shouldHaveRole = hasVerifiedWallet && allEligibleRoles.has(roleId);
+            if (shouldHaveRole && !hasRole) {
+                console.log(`Adding role ${role.name} to user ${discordId}`);
+                await member.roles.add(role);
+            }
+            else if (!shouldHaveRole && hasRole) {
+                console.log(`Removing role ${role.name} from user ${discordId}`);
+                await member.roles.remove(role);
+            }
         }
     }
     async updateAllUsersRoles() {

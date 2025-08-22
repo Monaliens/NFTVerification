@@ -1,7 +1,18 @@
 import { z } from 'zod';
 import dotenv from 'dotenv';
 
+// Load environment variables from .env file
+
+// Try dotenv as fallback
 dotenv.config();
+
+// NFT Tier Role Configuration Schema
+const nftTierRoleSchema = z.object({
+  minTokens: z.number(),
+  maxTokens: z.number(),
+  roleId: z.string(),
+  name: z.string(),
+});
 
 const envSchema = z.object({
   // Discord Configuration
@@ -19,10 +30,21 @@ const envSchema = z.object({
   // NFT Configuration
   VERIFICATION_WALLET_ADDRESS: z.string(),
   BLOCKVISION_API_KEY: z.string(),
+  
+  // Single Collection with Tier Roles
   NFT_CONTRACT_ADDRESS: z.string(),
+  NFT_TIER_ROLES: z.string().transform((str) => {
+    try {
+      const parsed = JSON.parse(str);
+      return z.array(nftTierRoleSchema).parse(parsed);
+    } catch (error) {
+      console.error('Invalid NFT_TIER_ROLES format:', error);
+      return [];
+    }
+  }),
+  
   // Discord Role IDs
   VERIFIED_ROLE_ID: z.string(),
-  HOLDER_ROLE_ID: z.string(),
 });
 
 type Config = z.infer<typeof envSchema>;

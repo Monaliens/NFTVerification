@@ -22,10 +22,18 @@ interface HolderResponse {
   };
 }
 
+interface CollectionHolderData {
+  address: string;
+  contractAddress: string;
+  tokenCount: number;
+  tokens: string[];
+}
+
 export class NFTService {
   private readonly blockvisionUrl = 'https://api.blockvision.org/v2/monad/account/transactions';
   private readonly holdersUrl = `${config.BASE_URL}/api/nft/holders_v2`;
   private readonly nftContractAddress = config.NFT_CONTRACT_ADDRESS;
+  private readonly tierRoles = config.NFT_TIER_ROLES;
   private isUpdatingHolders = false;
   private verificationAmounts: Map<string, string> = new Map();
 
@@ -56,9 +64,6 @@ export class NFTService {
     if (!amount) {
       amount = this.generateVerificationAmount();
       this.verificationAmounts.set(normalizedAddress, amount);
-      console.log(`Generated new verification amount for ${normalizedAddress}: ${amount} wei (${(Number(amount) / 1e18).toFixed(5)} MON)`);
-    } else {
-      console.log(`Retrieved existing verification amount for ${normalizedAddress}: ${amount} wei (${(Number(amount) / 1e18).toFixed(5)} MON)`);
     }
     
     return amount;
@@ -67,7 +72,6 @@ export class NFTService {
   // Clear verification amount after successful verification
   clearVerificationAmount(address: string): void {
     const normalizedAddress = address.toLowerCase();
-    console.log(`Clearing verification amount for ${normalizedAddress}`);
     this.verificationAmounts.delete(normalizedAddress);
   }
 
@@ -76,7 +80,6 @@ export class NFTService {
     
     try {
       this.isUpdatingHolders = true;
-      console.log('Fetching holders from API...');
       
       const response = await axios.get<HolderResponse>(`${this.holdersUrl}/${this.nftContractAddress}`);
       
@@ -90,12 +93,11 @@ export class NFTService {
         tokens: holder.tokens
       }));
 
-      console.log(`Found ${holders.length} holders, updating database...`);
+      console.log(`✅ Updated ${holders.length} NFT holders`);
 
-      // Clear existing holders and insert new ones in a single transaction
+      // Update database
       await db.updateHolders(holders);
 
-      console.log('Holders cache updated successfully');
       return true;
     } catch (error) {
       console.error('Error updating holders cache:', error);
@@ -105,10 +107,33 @@ export class NFTService {
     }
   }
 
+  // Consolidate holders from multiple collections into unique addresses
+  private consolidateHolders(holders: { address: string; tokenCount: number; tokens: string[] }[]): { address: string; tokenCount: number; tokens: string[] }[] {
+    const holderMap = new Map<string, { tokenCount: number; tokens: Set<string> }>();
+    
+    holders.forEach(holder => {
+      const existing = holderMap.get(holder.address);
+      if (existing) {
+        existing.tokenCount += holder.tokenCount;
+        holder.tokens.forEach(token => existing.tokens.add(token));
+      } else {
+        holderMap.set(holder.address, {
+          tokenCount: holder.tokenCount,
+          tokens: new Set(holder.tokens)
+        });
+      }
+    });
+
+    return Array.from(holderMap.entries()).map(([address, data]) => ({
+      address,
+      tokenCount: data.tokenCount,
+      tokens: Array.from(data.tokens)
+    }));
+  }
+
   async getRecentTransactions(address: string): Promise<Transaction[]> {
     try {
       const normalizedAddress = address.toLowerCase();
-      console.log(`Fetching recent transactions for ${normalizedAddress}`);
       
       const response = await axios.get(this.blockvisionUrl, {
         params: {
@@ -120,6 +145,12 @@ export class NFTService {
           'x-api-key': config.BLOCKVISION_API_KEY
         }
       });
+
+      // Check if response has data
+      if (!response.data || !response.data.result || !response.data.result.data) {
+        console.log('No transaction data returned from API');
+        return [];
+      }
 
       // Filter for self-transfers
       return response.data.result.data
@@ -148,35 +179,45 @@ export class NFTService {
     return db.getTokenCount(address);
   }
 
+  // Tier-based role methods
+  async getEligibleTierRoles(address: string): Promise<string[]> {
+    const tokenCount = await this.getTokenCount(address);
+    const eligibleRoles: string[] = [];
+
+    // Find the appropriate tier role
+    for (const tier of this.tierRoles) {
+      if (tokenCount >= tier.minTokens && tokenCount <= tier.maxTokens) {
+        eligibleRoles.push(tier.roleId);
+        break; // Only one tier role per user
+      }
+    }
+
+    return eligibleRoles;
+  }
+
+  // Get all tier role IDs for management
+  getAllTierRoleIds(): string[] {
+    return this.tierRoles.map(tier => tier.roleId);
+  }
+
   async hasReceivedPayment(address: string): Promise<boolean> {
     const normalizedAddress = address.toLowerCase();
     const expectedAmount = this.getVerificationAmount(normalizedAddress);
     const expectedMON = (Number(expectedAmount) / 1e18).toFixed(5);
-    
-    console.log(`Checking transactions for payment from: ${normalizedAddress}`);
-    console.log(`Looking for self-transfer amount: ${expectedAmount} wei (${expectedMON} MON)`);
     
     const transactions = await this.getRecentTransactions(normalizedAddress);
     
     const validTransaction = transactions.some(tx => {
       const isSelfTransfer = tx.from === tx.to && tx.from === normalizedAddress;
       const actualMON = (Number(tx.value) / 1e18).toFixed(5);
-      const isCorrectAmount = actualMON === expectedMON;
+      const expectedMONFloat = parseFloat(expectedMON);
+      const actualMONFloat = parseFloat(actualMON);
+      
+      // Accept any amount >= expected amount (or 0.02 MON minimum)
+      const isCorrectAmount = actualMONFloat >= expectedMONFloat || actualMONFloat >= 0.02;
       const isSuccessful = tx.status === 1;
 
-      console.log('Transaction check:', {
-        hash: tx.hash,
-        isSelfTransfer,
-        isCorrectAmount,
-        isSuccessful,
-        actualValue: tx.value,
-        expectedValue: expectedAmount,
-        actualMON,
-        expectedMON
-      });
-
       if (isSelfTransfer && isCorrectAmount && isSuccessful) {
-        console.log('Found valid verification transaction!');
         return true;
       }
       return false;
@@ -184,8 +225,7 @@ export class NFTService {
 
     if (validTransaction) {
       this.clearVerificationAmount(normalizedAddress);
-    } else {
-      console.log('No valid verification transaction found');
+      console.log(`✅ Payment verified for ${normalizedAddress}`);
     }
 
     return validTransaction;

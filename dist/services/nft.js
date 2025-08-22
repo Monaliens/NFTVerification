@@ -11,7 +11,7 @@ class NFTService {
     constructor() {
         this.blockvisionUrl = 'https://api.blockvision.org/v2/monad/account/transactions';
         this.holdersUrl = `${config_1.config.BASE_URL}/api/nft/holders_v2`;
-        this.nftContractAddress = config_1.config.NFT_CONTRACT_ADDRESS;
+        this.collections = config_1.config.NFT_COLLECTIONS;
         this.isUpdatingHolders = false;
         this.verificationAmounts = new Map();
         this.updateHoldersCache();
@@ -47,19 +47,41 @@ class NFTService {
             return;
         try {
             this.isUpdatingHolders = true;
-            console.log('Fetching holders from API...');
-            const response = await axios_1.default.get(`${this.holdersUrl}/${this.nftContractAddress}`);
-            if (!response.data.success) {
-                throw new Error('Failed to fetch holders');
+            console.log('Fetching holders from API for multiple collections...');
+            const allCollectionHolders = [];
+            const allHolders = [];
+            for (const collection of this.collections) {
+                try {
+                    console.log(`Fetching holders for collection: ${collection.name} (${collection.contractAddress})`);
+                    const response = await axios_1.default.get(`${this.holdersUrl}/${collection.contractAddress}`);
+                    if (!response.data.success) {
+                        console.error(`Failed to fetch holders for collection ${collection.name}`);
+                        continue;
+                    }
+                    const collectionHolders = response.data.data.holders.map(holder => ({
+                        address: holder.address.toLowerCase(),
+                        contractAddress: collection.contractAddress.toLowerCase(),
+                        tokenCount: holder.tokenCount,
+                        tokens: holder.tokens
+                    }));
+                    allCollectionHolders.push(...collectionHolders);
+                    const generalHolders = response.data.data.holders.map(holder => ({
+                        address: holder.address.toLowerCase(),
+                        tokenCount: holder.tokenCount,
+                        tokens: holder.tokens
+                    }));
+                    allHolders.push(...generalHolders);
+                    console.log(`Found ${collectionHolders.length} holders for ${collection.name}`);
+                }
+                catch (error) {
+                    console.error(`Error fetching holders for collection ${collection.name}:`, error);
+                }
             }
-            const holders = response.data.data.holders.map(holder => ({
-                address: holder.address.toLowerCase(),
-                tokenCount: holder.tokenCount,
-                tokens: holder.tokens
-            }));
-            console.log(`Found ${holders.length} holders, updating database...`);
-            await database_1.db.updateHolders(holders);
-            console.log('Holders cache updated successfully');
+            console.log(`Total holders across all collections: ${allCollectionHolders.length}`);
+            await database_1.db.updateCollectionHolders(allCollectionHolders);
+            const uniqueHolders = this.consolidateHolders(allHolders);
+            await database_1.db.updateHolders(uniqueHolders);
+            console.log('Multi-collection holders cache updated successfully');
             return true;
         }
         catch (error) {
@@ -69,6 +91,27 @@ class NFTService {
         finally {
             this.isUpdatingHolders = false;
         }
+    }
+    consolidateHolders(holders) {
+        const holderMap = new Map();
+        holders.forEach(holder => {
+            const existing = holderMap.get(holder.address);
+            if (existing) {
+                existing.tokenCount += holder.tokenCount;
+                holder.tokens.forEach(token => existing.tokens.add(token));
+            }
+            else {
+                holderMap.set(holder.address, {
+                    tokenCount: holder.tokenCount,
+                    tokens: new Set(holder.tokens)
+                });
+            }
+        });
+        return Array.from(holderMap.entries()).map(([address, data]) => ({
+            address,
+            tokenCount: data.tokenCount,
+            tokens: Array.from(data.tokens)
+        }));
     }
     async getRecentTransactions(address) {
         try {
@@ -105,6 +148,32 @@ class NFTService {
     }
     async getTokenCount(address) {
         return database_1.db.getTokenCount(address);
+    }
+    async getCollectionHoldings(address) {
+        const holdings = await database_1.db.getCollectionHoldings(address);
+        return holdings.map(holding => {
+            const collection = this.collections.find(c => c.contractAddress.toLowerCase() === holding.contractAddress.toLowerCase());
+            return {
+                ...holding,
+                collection
+            };
+        });
+    }
+    async getEligibleRoles(address) {
+        const holdings = await this.getCollectionHoldings(address);
+        const eligibleRoles = [];
+        for (const holding of holdings) {
+            if (holding.collection && holding.tokenCount >= holding.collection.minTokens) {
+                eligibleRoles.push(holding.collection.roleId);
+            }
+        }
+        return eligibleRoles;
+    }
+    async isHolderForCollection(address, contractAddress) {
+        return database_1.db.isHolderForCollection(address, contractAddress);
+    }
+    async getTokenCountForCollection(address, contractAddress) {
+        return database_1.db.getTokenCountForCollection(address, contractAddress);
     }
     async hasReceivedPayment(address) {
         const normalizedAddress = address.toLowerCase();

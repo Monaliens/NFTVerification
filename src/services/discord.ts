@@ -35,38 +35,53 @@ export class DiscordService {
     if (!member) return;
 
     const verifiedRole = await this.getRole(config.VERIFIED_ROLE_ID);
-    const holderRole = await this.getRole(config.HOLDER_ROLE_ID);
-
-    if (!verifiedRole || !holderRole) {
-      console.error('Required roles not found');
-      console.error(verifiedRole?.id, holderRole?.id);
+    if (!verifiedRole) {
+      console.error('Verified role not found');
       return;
     }
 
     const hasVerifiedWallet = await db.hasVerifiedWallet(discordId);
     const wallets = await db.getUserWallets(discordId);
-    const isHolder = await Promise.any(
-      wallets
-        .filter(wallet => wallet.isVerified)
-        .map(wallet => nftService.isHolder(wallet.address))
-    ).catch(() => false);
 
     // Update verified role - Only add, never remove
     if (hasVerifiedWallet && !member.roles.cache.has(verifiedRole.id)) {
       await member.roles.add(verifiedRole);
     }
 
-    // Update holder role
-    if (hasVerifiedWallet && isHolder && !member.roles.cache.has(holderRole.id)) {
-      await member.roles.add(holderRole);
-    } else if ((!hasVerifiedWallet || !isHolder) && member.roles.cache.has(holderRole.id)) {
-      await member.roles.remove(holderRole);
+    // Get eligible tier roles for all verified wallets
+    const allEligibleTierRoles = new Set<string>();
+    
+    for (const wallet of wallets.filter(w => w.isVerified)) {
+      const tierRoles = await nftService.getEligibleTierRoles(wallet.address);
+      tierRoles.forEach(roleId => allEligibleTierRoles.add(roleId));
+    }
+
+    // Get all tier role IDs to manage
+    const allTierRoleIds = nftService.getAllTierRoleIds();
+
+    // Update tier-based roles
+    for (const roleId of allTierRoleIds) {
+      const role = await this.getRole(roleId);
+      if (!role) {
+        console.error(`Tier role not found: ${roleId}`);
+        continue;
+      }
+
+      const hasRole = member.roles.cache.has(roleId);
+      const shouldHaveRole = hasVerifiedWallet && allEligibleTierRoles.has(roleId);
+
+      if (shouldHaveRole && !hasRole) {
+        console.log(`🎭 Added ${role.name} role`);
+        await member.roles.add(role);
+      } else if (!shouldHaveRole && hasRole) {
+        console.log(`🗑️ Removed ${role.name} role`);
+        await member.roles.remove(role);
+      }
     }
   }
 
   async updateAllUsersRoles(): Promise<void> {
     try {
-      console.log('Updating roles for all users...');
       const users = await db.getAllUsers();
       let updatedCount = 0;
       let errorCount = 0;
@@ -75,15 +90,12 @@ export class DiscordService {
         try {
           await this.updateMemberRoles(user.discordId);
           updatedCount++;
-          if (updatedCount % 100 === 0) {
-            console.log(`Progress: ${updatedCount}/${users.length} users (${errorCount} errors)`);
-          }
         } catch (error) {
           errorCount++;
-          console.error(`Error updating roles for user ${user.discordId}:`, error);
+          console.error(`❌ Error updating roles for user ${user.discordId}:`, error);
         }
       }
-      console.log(`Completed role updates: ${updatedCount} successful, ${errorCount} failed`);
+      console.log(`🔄 Role update complete: ${updatedCount} users updated, ${errorCount} errors`);
     } catch (error) {
       console.error('Error updating all users roles:', error);
     }
