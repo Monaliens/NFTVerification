@@ -23,7 +23,19 @@ export class DiscordService {
   private async getRole(roleId: string): Promise<Role | null> {
     try {
       const guild = await this.client.guilds.fetch(config.DISCORD_GUILD_ID);
-      return await guild.roles.fetch(roleId);
+      const role = await guild.roles.fetch(roleId);
+      if (!role) {
+        console.error(`Role not found with ID: ${roleId}`);
+        // Let's also list all available roles to debug
+        const allRoles = await guild.roles.fetch();
+        console.log('Available roles in server:');
+        allRoles.forEach(r => {
+          if (r.name !== '@everyone') {
+            console.log(`  - ${r.name}: ${r.id}`);
+          }
+        });
+      }
+      return role;
     } catch (error) {
       console.error('Error fetching role:', error);
       return null;
@@ -80,7 +92,7 @@ export class DiscordService {
     }
   }
 
-  async updateAllUsersRoles(): Promise<void> {
+  async updateAllUsersRoles(): Promise<{ totalUsers: number; updatedUsers: number; errors: number }> {
     try {
       const users = await db.getAllUsers();
       let updatedCount = 0;
@@ -95,9 +107,62 @@ export class DiscordService {
           console.error(`❌ Error updating roles for user ${user.discordId}:`, error);
         }
       }
+      
+      const result = {
+        totalUsers: users.length,
+        updatedUsers: updatedCount,
+        errors: errorCount
+      };
+      
       console.log(`🔄 Role update complete: ${updatedCount} users updated, ${errorCount} errors`);
+      return result;
     } catch (error) {
       console.error('Error updating all users roles:', error);
+      return { totalUsers: 0, updatedUsers: 0, errors: 1 };
+    }
+  }
+
+  // NEW: Update only users with NFTs (preserves verified-only users)
+  async updateNFTUsersRoles(): Promise<{ totalUsers: number; updatedUsers: number; errors: number; skippedVerifiedOnly: number }> {
+    try {
+      // Get statistics for logging
+      const verifiedUserCount = await db.getVerifiedUserCount();
+      const nftStats = await db.getUsersWithNFTs();
+      const usersWithNFTs = await db.getUsersWithNFTsForRoleUpdate();
+      
+      console.log(`📊 DATABASE STATS:`);
+      console.log(`   👥 Total verified users: ${verifiedUserCount}`);
+      console.log(`   🎨 Users with NFTs: ${nftStats.userCount}`);
+      console.log(`   🔢 Total NFTs: ${nftStats.totalNFTs}`);
+      console.log(`   🎯 Users to update: ${usersWithNFTs.length}`);
+      console.log(`   ✅ Verified-only users preserved: ${verifiedUserCount - usersWithNFTs.length}`);
+      
+      let updatedCount = 0;
+      let errorCount = 0;
+
+      for (const user of usersWithNFTs) {
+        try {
+          await this.updateMemberRoles(user.discordId);
+          updatedCount++;
+        } catch (error) {
+          errorCount++;
+          console.error(`❌ Error updating roles for NFT user ${user.discordId}:`, error);
+        }
+      }
+      
+      const result = {
+        totalUsers: usersWithNFTs.length,
+        updatedUsers: updatedCount,
+        errors: errorCount,
+        skippedVerifiedOnly: verifiedUserCount - usersWithNFTs.length
+      };
+      
+      console.log(`🎨 NFT role update complete: ${updatedCount} users updated, ${errorCount} errors`);
+      console.log(`🛡️ Preserved ${result.skippedVerifiedOnly} verified-only users (no role changes)`);
+      return result;
+    } catch (error) {
+      console.error('Error updating NFT users roles:', error);
+      return { totalUsers: 0, updatedUsers: 0, errors: 1, skippedVerifiedOnly: 0 };
     }
   }
 }

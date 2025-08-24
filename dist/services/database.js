@@ -23,6 +23,64 @@ class DatabaseService {
             include: { wallets: true }
         });
     }
+    async getVerifiedWalletCount() {
+        return this.prisma.wallet.count({
+            where: { isVerified: true }
+        });
+    }
+    async getVerifiedUserCount() {
+        const users = await this.prisma.user.findMany({
+            include: {
+                wallets: {
+                    where: { isVerified: true }
+                }
+            }
+        });
+        return users.filter(user => user.wallets.length > 0).length;
+    }
+    async getUsersWithNFTs() {
+        try {
+            const holders = await this.prisma.holder.findMany();
+            const totalNFTs = holders.reduce((sum, holder) => sum + holder.tokenCount, 0);
+            return {
+                userCount: holders.length,
+                totalNFTs: totalNFTs
+            };
+        }
+        catch (error) {
+            console.error('Error getting users with NFTs:', error);
+            return { userCount: 0, totalNFTs: 0 };
+        }
+    }
+    async getUsersWithNFTsForRoleUpdate() {
+        try {
+            const holders = await this.prisma.holder.findMany();
+            const walletAddressesWithNFTs = holders.map(h => h.address.toLowerCase());
+            const users = await this.prisma.user.findMany({
+                include: {
+                    wallets: {
+                        where: {
+                            isVerified: true,
+                            address: {
+                                in: walletAddressesWithNFTs
+                            }
+                        }
+                    }
+                }
+            });
+            return users.filter(user => user.wallets.length > 0);
+        }
+        catch (error) {
+            console.error('Error getting users with NFTs for role update:', error);
+            return [];
+        }
+    }
+    async getAllVerifiedWallets() {
+        return this.prisma.wallet.findMany({
+            where: { isVerified: true },
+            include: { user: true }
+        });
+    }
     async getWalletStatus(address) {
         const wallet = await this.prisma.wallet.findUnique({
             where: { address: address.toLowerCase() },
@@ -92,6 +150,14 @@ class DatabaseService {
             where: { address: normalizedAddress },
             data: { isVerified: true }
         });
+    }
+    async isWalletVerified(address) {
+        const normalizedAddress = address.toLowerCase();
+        const wallet = await this.prisma.wallet.findUnique({
+            where: { address: normalizedAddress },
+            select: { isVerified: true }
+        });
+        return wallet?.isVerified || false;
     }
     async getUserWallets(discordId) {
         const user = await this.getUser(discordId);

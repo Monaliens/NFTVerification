@@ -230,17 +230,58 @@ client.on('ready', async () => {
     await message.pin();
     console.log('📢 Verification system ready!');
 
-    // Start periodic holder updates every 15 minutes
-    setInterval(async () => {
-      console.log('⏰ Checking NFT holders...');
-      const updated = await nftService.updateHoldersCache();
-      if (updated) {
-        await discordService.updateAllUsersRoles();
+    // 🔄 AUTOMATIC NFT ROLE UPDATE SYSTEM (NFT HOLDERS ONLY)
+    // Start periodic holder updates every 10 minutes for users with NFTs only
+    const NFT_CHECK_INTERVAL = 10 * 60 * 1000; // 10 minutes
+    
+    const periodicNFTUpdate = async () => {
+      try {
+        console.log('\n' + '='.repeat(50));
+        console.log('⏰ PERIODIC NFT ROLE UPDATE STARTED (NFT HOLDERS ONLY)');
+        console.log(`📅 Time: ${new Date().toISOString()}`);
+        console.log('='.repeat(50));
+        
+        // Step 1: Update NFT holders cache
+        console.log('🔄 Step 1: Updating NFT holders cache...');
+        const holdersUpdated = await nftService.updateHoldersCache();
+        
+        if (holdersUpdated) {
+          console.log('✅ NFT holders cache updated successfully');
+          
+          // Step 2: Update Discord roles ONLY for users with NFTs (preserves verified-only users)
+          console.log('� Step 2: Updating Discord roles for NFT holders only...');
+          const roleUpdateResult = await discordService.updateNFTUsersRoles();
+          
+          console.log('📊 NFT Role update summary:');
+          console.log(`   - NFT users processed: ${roleUpdateResult?.totalUsers || 'N/A'}`);
+          console.log(`   - Roles updated: ${roleUpdateResult?.updatedUsers || 'N/A'}`);
+          console.log(`   - Errors: ${roleUpdateResult?.errors || 0}`);
+          console.log(`   - Verified-only users preserved: ${roleUpdateResult?.skippedVerifiedOnly || 0}`);
+          
+        } else {
+          console.log('⚠️ NFT holders cache update failed, skipping role update');
+        }
+        
+        console.log('✅ PERIODIC NFT ROLE UPDATE COMPLETED');
+        console.log('='.repeat(50) + '\n');
+        
+      } catch (error) {
+        console.error('❌ Error in periodic NFT update:', error);
       }
-    }, 15 * 60 * 1000); // 15 minutes
+    };
+    
+    // Run initial update
+    console.log('🚀 Running initial NFT role update...');
+    await periodicNFTUpdate();
+    
+    // Set up interval for periodic updates
+    setInterval(periodicNFTUpdate, NFT_CHECK_INTERVAL);
+    console.log(`⏱️ Automatic NFT role updates scheduled every ${NFT_CHECK_INTERVAL / 1000 / 60} minutes`);
 
-    // Do initial role update
-    await discordService.updateAllUsersRoles();
+    // Do initial role update (legacy code for compatibility)
+    console.log('🔄 Running legacy role update...');
+    const legacyResult = await discordService.updateAllUsersRoles();
+    console.log(`📊 Legacy update: ${legacyResult.updatedUsers}/${legacyResult.totalUsers} users processed`);
   } catch (error) {
     console.error('Error setting up bot:', error);
     if (error instanceof Error) {
@@ -254,86 +295,178 @@ client.on('ready', async () => {
   }
 });
 
+// Track ongoing interactions to prevent duplicates
+const ongoingInteractions = new Set<string>();
+
 // Button and Modal interaction handlers
 client.on('interactionCreate', async (interaction) => {
+  // Create unique interaction ID
+  const interactionId = `${interaction.id}-${interaction.user.id}`;
+  
+  // Check if this interaction is already being processed
+  if (ongoingInteractions.has(interactionId)) {
+    console.log('Duplicate interaction detected, ignoring');
+    return;
+  }
+
+  // Add to ongoing interactions
+  ongoingInteractions.add(interactionId);
+
   try {
     if (interaction.isButton()) {
       const buttonInteraction = interaction as ButtonInteraction;
       
-      // Check if interaction is already handled
+      // Additional safety check - don't process if already handled
       if (buttonInteraction.replied || buttonInteraction.deferred) {
+        console.log('Interaction already handled, skipping');
+        ongoingInteractions.delete(interactionId);
         return;
       }
 
       switch (buttonInteraction.customId) {
         case 'add_wallet': {
-          // Create the modal
-          const modal = new ModalBuilder()
-            .setCustomId('wallet_input')
-            .setTitle('Link Your Wallet');
+          try {
+            // Create the modal
+            const modal = new ModalBuilder()
+              .setCustomId('wallet_input')
+              .setTitle('Link Your Wallet');
 
-          // Add input field for wallet address
-          const walletInput = new TextInputBuilder()
-            .setCustomId('wallet_address')
-            .setLabel('Enter your wallet address')
-            .setPlaceholder('0x...')
-            .setStyle(TextInputStyle.Short)
-            .setMinLength(42)
-            .setMaxLength(42)
-            .setRequired(true);
+            // Add input field for wallet address
+            const walletInput = new TextInputBuilder()
+              .setCustomId('wallet_address')
+              .setLabel('Enter your wallet address')
+              .setPlaceholder('0x...')
+              .setStyle(TextInputStyle.Short)
+              .setMinLength(42)
+              .setMaxLength(42)
+              .setRequired(true);
 
-          const firstActionRow = new ActionRowBuilder<TextInputBuilder>()
-            .addComponents(walletInput);
+            const firstActionRow = new ActionRowBuilder<TextInputBuilder>()
+              .addComponents(walletInput);
 
-          modal.addComponents(firstActionRow);
+            modal.addComponents(firstActionRow);
 
-          await buttonInteraction.showModal(modal);
+            await buttonInteraction.showModal(modal);
+          } catch (error) {
+            console.error('Error showing wallet modal:', error);
+            // Safe error response
+            if (!buttonInteraction.replied && !buttonInteraction.deferred) {
+              try {
+                await buttonInteraction.reply({
+                  content: '❌ An error occurred while opening the wallet form.',
+                  ephemeral: true
+                });
+              } catch (replyError) {
+                console.error('Failed to send error response:', replyError.code);
+              }
+            }
+          }
           break;
-        }
-
-        case 'update_holdings':
-          await buttonInteraction.deferReply({ ephemeral: true });
+        }        case 'update_holdings': {
+          // Safe defer with error handling
+          if (!buttonInteraction.deferred && !buttonInteraction.replied) {
+            try {
+              await buttonInteraction.deferReply({ ephemeral: true });
+            } catch (error) {
+              console.error('Failed to defer reply for update_holdings:', error.code);
+              break;
+            }
+          }
           
           try {
+            // Update user roles
             await discordService.updateMemberRoles(buttonInteraction.user.id);
             
-            // Check if the interaction is still valid
-            if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
-              console.log('Interaction no longer valid after role update, aborting');
-              return;
+            // Get user's verified wallets and NFT information
+            const userWallets = await db.getWallets(buttonInteraction.user.id);
+            const verifiedWallets = userWallets.filter(w => w.isVerified);
+            
+            let totalNFTs = 0;
+            let walletInfos = [];
+            
+            for (const wallet of verifiedWallets) {
+              const tokenCount = await nftService.getTokenCount(wallet.address);
+              const isHolder = await nftService.isHolder(wallet.address);
+              totalNFTs += tokenCount;
+              
+              walletInfos.push({
+                address: wallet.address,
+                nfts: tokenCount,
+                isHolder
+              });
             }
             
-            await buttonInteraction.editReply({
-              content: 'Your roles have been updated based on your NFT holdings.'
-            }).catch(err => {
-              console.error('Failed to send role update message:', err.code);
-            });
+            // Determine highest tier
+            let tierInfo = '';
+            if (totalNFTs >= 50) tierInfo = '👑 **VIP Tier** (50+ NFTs)';
+            else if (totalNFTs >= 10) tierInfo = '💎 **Diamond Tier** (10+ NFTs)';
+            else if (totalNFTs >= 5) tierInfo = '🥇 **Gold Tier** (5+ NFTs)';
+            else if (totalNFTs >= 3) tierInfo = '🥈 **Silver Tier** (3+ NFTs)';
+            else if (totalNFTs >= 1) tierInfo = '🥉 **Bronze Tier** (1+ NFTs)';
+            else tierInfo = '❌ **No NFT Tier** (0 NFTs)';
             
-            // Delete message after 60 seconds
-            setTimeout(async () => {
-              try {
-                if (buttonInteraction.isRepliable()) {
-                  await buttonInteraction.deleteReply().catch(err => {
-                    console.error('Failed to delete roles update message (likely expired):', err.code);
-                  });
+            let walletDetails = '';
+            if (walletInfos.length > 0) {
+              walletDetails = '\n\n📋 **Wallet Breakdown:**\n';
+              walletInfos.forEach((info, index) => {
+                const shortAddr = `${info.address.slice(0, 6)}...${info.address.slice(-4)}`;
+                walletDetails += `${index + 1}. \`${shortAddr}\`: ${info.nfts} NFT${info.nfts !== 1 ? 's' : ''}\n`;
+              });
+            }
+            
+            const embedColor = totalNFTs > 0 ? 0x00ff00 : 0xffaa00;
+            
+            const updateEmbed = new EmbedBuilder()
+              .setColor(embedColor)
+              .setTitle('🔄 Holdings Updated')
+              .setDescription(
+                `✅ Your roles have been updated based on your NFT holdings!\n\n` +
+                `🎨 **Total NFTs:** ${totalNFTs}\n` +
+                `🎭 **Current Tier:** ${tierInfo}` +
+                walletDetails
+              )
+              .addFields(
+                { name: '👤 Discord User', value: `<@${buttonInteraction.user.id}>`, inline: true },
+                { name: '📊 Total NFTs', value: `${totalNFTs}`, inline: true },
+                { name: '🔗 Verified Wallets', value: `${verifiedWallets.length}`, inline: true }
+              )
+              .setTimestamp();
+            
+            // Check if the interaction is still valid
+            if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
+              await buttonInteraction.editReply({
+                embeds: [updateEmbed]
+              });
+              
+              // Delete message after 2 minutes
+              setTimeout(async () => {
+                try {
+                  if (buttonInteraction.isRepliable()) {
+                    await buttonInteraction.deleteReply().catch(err => {
+                      console.error('Failed to delete roles update message (likely expired):', err.code);
+                    });
+                  }
+                } catch (error) {
+                  console.error('Error deleting roles update message:', error);
                 }
-              } catch (error) {
-                console.error('Error deleting roles update message:', error);
-              }
-            }, 60000); // 60 seconds
+              }, 120000); // 2 minutes
+            }
           } catch (error) {
             console.error('Error updating roles:', error);
             
             // Only attempt to edit if the interaction is still valid
             if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
-              await buttonInteraction.editReply({
-                content: 'An error occurred while updating your roles. Please try again.'
-              }).catch(err => {
-                console.error('Failed to send role update error message:', err.code);
-              });
+              try {
+                await buttonInteraction.editReply({
+                  content: 'An error occurred while updating your roles. Please try again.'
+                });
+              } catch (editError) {
+                console.error('Failed to send role update error message:', editError.code);
+              }
             }
           }
           break;
+        }
 
         case 'list_wallets': {
           await buttonInteraction.deferReply({ ephemeral: true });
@@ -405,47 +538,19 @@ client.on('interactionCreate', async (interaction) => {
 
         default:
           if (buttonInteraction.customId.startsWith('check_payment_')) {
-            await buttonInteraction.deferReply({ ephemeral: true });
-            const address = buttonInteraction.customId.split('_')[2];
+            // Early check to prevent double handling
+            if (buttonInteraction.replied || buttonInteraction.deferred) {
+              console.log('Check payment interaction already handled, aborting');
+              return;
+            }
             
             try {
-              // First check if the wallet is already verified
-              const isVerified = await db.hasVerifiedWallet(buttonInteraction.user.id);
+              await buttonInteraction.deferReply({ ephemeral: true });
+              const address = buttonInteraction.customId.split('_')[2];
               
-              // Check if interaction is still valid
-              if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
-                console.log('Interaction no longer valid, aborting check_payment handler');
-                return;
-              }
+              console.log(`🔍 Checking payment for address: ${address}`);
               
-              if (isVerified) {
-                const alreadyVerifiedEmbed = new EmbedBuilder()
-                  .setColor('#00ff00')
-                  .setTitle('Already Verified')
-                  .setDescription('✅ Your wallet is already verified!')
-                  .setTimestamp();
-
-                await buttonInteraction.editReply({
-                  embeds: [alreadyVerifiedEmbed],
-                  components: [],
-                  ephemeral: true
-                } as InteractionEditReplyOptions);
-
-                // Delete message after 2 minutes
-                setTimeout(async () => {
-                  try {
-                    if (buttonInteraction.isRepliable()) {
-                      await buttonInteraction.deleteReply().catch(err => {
-                        console.error('Failed to delete already verified message (likely expired):', err.code);
-                      });
-                    }
-                  } catch (error) {
-                    console.error('Error deleting already verified message:', error);
-                  }
-                }, 120000);
-                return;
-              }
-
+              // Check if payment was received for this specific address
               const hasReceived = await nftService.hasReceivedPayment(address);
               
               // Check again if interaction is still valid
@@ -455,13 +560,63 @@ client.on('interactionCreate', async (interaction) => {
               }
               
               if (hasReceived) {
+                // Check if this specific wallet is already verified
+                const isWalletAlreadyVerified = await db.isWalletVerified(address);
+                
+                if (isWalletAlreadyVerified) {
+                  const alreadyVerifiedEmbed = new EmbedBuilder()
+                    .setColor('#00ff00')
+                    .setTitle('Already Verified')
+                    .setDescription('✅ This wallet is already verified!')
+                    .setTimestamp();
+
+                  await buttonInteraction.editReply({
+                    embeds: [alreadyVerifiedEmbed],
+                    components: []
+                  });
+                  return;
+                }
+                
+                // Verify the wallet and update roles
                 await db.verifyWallet(address);
                 await discordService.updateMemberRoles(buttonInteraction.user.id);
                 
+                // Check NFT holdings and prepare detailed message
+                const isHolder = await nftService.isHolder(address);
+                const tokenCount = await nftService.getTokenCount(address);
+                const eligibleRoles = await nftService.getEligibleTierRoles(address);
+                
+                let nftStatusMessage = '';
+                let embedColor: number = 0x00ff00; // Default green
+                
+                if (isHolder && tokenCount > 0) {
+                  nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n✅ You own **${tokenCount}** Lil Monalien NFT${tokenCount > 1 ? 's' : ''}!\n`;
+                  
+                  // Add role information
+                  if (eligibleRoles.length > 0) {
+                    nftStatusMessage += `🎭 **Roles Assigned:** Based on your holdings, you've received tier-based roles!\n`;
+                    
+                    // Determine tier name
+                    if (tokenCount >= 50) nftStatusMessage += `👑 **VIP Tier:** 50+ NFT Holder`;
+                    else if (tokenCount >= 10) nftStatusMessage += `💎 **Diamond Tier:** 10+ NFT Holder`;
+                    else if (tokenCount >= 5) nftStatusMessage += `🥇 **Gold Tier:** 5+ NFT Holder`;
+                    else if (tokenCount >= 3) nftStatusMessage += `🥈 **Silver Tier:** 3+ NFT Holder`;
+                    else nftStatusMessage += `🥉 **Bronze Tier:** 1+ NFT Holder`;
+                  }
+                } else {
+                  nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n❌ No Lil Monalien NFTs found in this wallet.\n💡 You can still access verified holder channels, but you won't receive tier-based roles until you acquire NFTs.`;
+                  embedColor = 0xffaa00; // Orange for verified but no NFTs
+                }
+                
                 const successEmbed = new EmbedBuilder()
-                  .setColor('#00ff00')
+                  .setColor(embedColor)
                   .setTitle('Verification Complete')
-                  .setDescription('✅ Your wallet has been verified successfully!')
+                  .setDescription(`✅ Your wallet has been verified successfully!${nftStatusMessage}`)
+                  .addFields(
+                    { name: '🔗 Verified Wallet', value: `\`${address}\``, inline: false },
+                    { name: '📊 Total NFTs', value: `${tokenCount}`, inline: true },
+                    { name: '🎭 Tier Status', value: isHolder ? 'NFT Holder' : 'Verified (No NFTs)', inline: true }
+                  )
                   .setTimestamp();
 
                 await buttonInteraction.editReply({
@@ -485,16 +640,36 @@ client.on('interactionCreate', async (interaction) => {
                   }
                 }, 120000); // 2 minutes
               } else {
+                // Payment not received - show status with NFT check
                 const verificationAmount = nftService.getVerificationAmount(address);
                 const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
+                const isHolder = await nftService.isHolder(address);
+                const tokenCount = await nftService.getTokenCount(address);
+                
+                let nftPreviewMessage = '';
+                let embedColor: number = 0xff9900; // Default orange
+                
+                if (isHolder && tokenCount > 0) {
+                  nftPreviewMessage = `\n\n🎨 **Preview - Your NFT Holdings:**\n✅ ${tokenCount} Lil Monalien NFT${tokenCount > 1 ? 's' : ''} detected!\n💎 You'll receive tier-based roles after verification.`;
+                  embedColor = 0xffaa00; // Lighter orange for NFT holders
+                } else {
+                  nftPreviewMessage = `\n\n🎨 **NFT Holdings Check:**\n❌ No Lil Monalien NFTs found in this wallet.\n💡 You can still verify to access holder channels.`;
+                }
 
                 const pendingEmbed = new EmbedBuilder()
-                  .setColor('#ff9900')
+                  .setColor(embedColor)
                   .setTitle('Payment Not Found')
                   .setDescription('❌ Payment not found yet. Please make sure you:\n' +
                     `1. Sent exactly ${amountInMON} $MON\n` +
                     '2. Sent from your registered wallet\n' +
-                    '3. Sent it back to the same wallet (self-transfer)')
+                    '3. Sent it back to the same wallet (self-transfer)' +
+                    nftPreviewMessage)
+                  .addFields(
+                    { name: '🔗 Wallet Address', value: `\`${address}\``, inline: false },
+                    { name: '💰 Required Amount', value: `${amountInMON} MON`, inline: true },
+                    { name: '📊 NFTs Found', value: `${tokenCount}`, inline: true },
+                    { name: '🎯 Status', value: isHolder ? 'NFT Holder (Pending Verification)' : 'No NFTs (Can Still Verify)', inline: true }
+                  )
                   .setTimestamp();
 
                 const checkButton = new ButtonBuilder()
@@ -531,11 +706,13 @@ client.on('interactionCreate', async (interaction) => {
               
               // Only try to edit reply if the interaction is still valid
               if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
-                await buttonInteraction.editReply({
-                  content: 'An error occurred while processing your payment verification. Please try again.'
-                }).catch(err => {
-                  console.error('Failed to send check_payment error message:', err.code);
-                });
+                try {
+                  await buttonInteraction.editReply({
+                    content: 'An error occurred while processing your payment verification. Please try again.'
+                  });
+                } catch (editError) {
+                  console.error('Failed to send check_payment error message:', editError.code);
+                }
               }
             }
           } else if (buttonInteraction.customId.startsWith('delete_')) {
@@ -561,16 +738,53 @@ client.on('interactionCreate', async (interaction) => {
           break;
       }
     } else if (interaction.isModalSubmit()) {
+      // Check if modal interaction is already handled
+      if (interaction.replied || interaction.deferred) {
+        console.log('Modal interaction already handled, skipping');
+        ongoingInteractions.delete(interactionId);
+        return;
+      }
+
       if (interaction.customId === 'wallet_selection') {
-        await interaction.deferReply({ ephemeral: true });
+        try {
+          await interaction.deferReply({ ephemeral: true });
+        } catch (error) {
+          console.error('Failed to defer modal reply:', error.code);
+          return;
+        }
         
         try {
           const walletNumber = parseInt(interaction.fields.getTextInputValue('wallet_number'));
           const wallets = await db.getWallets(interaction.user.id);
           
           if (walletNumber < 1 || walletNumber > wallets.length) {
+            if (interaction.isRepliable() && !interaction.replied) {
+              await interaction.editReply({
+                content: `❌ Invalid wallet number. Please choose between 1 and ${wallets.length}.`
+              });
+              
+              // Delete message after 60 seconds
+              setTimeout(async () => {
+                try {
+                  if (interaction.isRepliable()) {
+                    await interaction.deleteReply();
+                  }
+                } catch (error) {
+                  console.error('Error deleting invalid wallet number message:', error);
+                }
+              }, 60000); // 60 seconds
+            }
+            return;
+          }
+
+          const selectedWallet = wallets[walletNumber - 1];
+
+          await db.deleteWallet(interaction.user.id, selectedWallet.address);
+          await discordService.updateMemberRoles(interaction.user.id);
+          
+          if (interaction.isRepliable() && !interaction.replied) {
             await interaction.editReply({
-              content: `❌ Invalid wallet number. Please choose between 1 and ${wallets.length}.`
+              content: `✅ Wallet \`${selectedWallet.address}\` has been removed.`
             });
             
             // Delete message after 60 seconds
@@ -580,49 +794,41 @@ client.on('interactionCreate', async (interaction) => {
                   await interaction.deleteReply();
                 }
               } catch (error) {
-                console.error('Error deleting invalid wallet number message:', error);
+                console.error('Error deleting wallet removed message:', error);
               }
             }, 60000); // 60 seconds
-            return;
           }
-
-          const selectedWallet = wallets[walletNumber - 1];
-
-          await db.deleteWallet(interaction.user.id, selectedWallet.address);
-          await discordService.updateMemberRoles(interaction.user.id);
-          
-          await interaction.editReply({
-            content: `✅ Wallet \`${selectedWallet.address}\` has been removed.`
-          });
-          
-          // Delete message after 60 seconds
-          setTimeout(async () => {
-            try {
-              if (interaction.isRepliable()) {
-                await interaction.deleteReply();
-              }
-            } catch (error) {
-              console.error('Error deleting wallet removed message:', error);
-            }
-          }, 60000); // 60 seconds
         } catch (error) {
           console.error('Error handling wallet selection:', error);
-          await interaction.editReply({
-            content: 'An error occurred while processing your request. Please try again.'
-          });
+          if (interaction.isRepliable() && !interaction.replied) {
+            try {
+              await interaction.editReply({
+                content: 'An error occurred while processing your request. Please try again.'
+              });
+            } catch (editError) {
+              console.error('Failed to send wallet selection error message:', editError.code);
+            }
+          }
         }
       } else if (interaction.customId === 'wallet_input') {
         // Defer the reply immediately to prevent timeout
-        await interaction.deferReply({ ephemeral: true });
+        try {
+          await interaction.deferReply({ ephemeral: true });
+        } catch (error) {
+          console.error('Failed to defer wallet input reply:', error.code);
+          return;
+        }
 
         try {
           const address = interaction.fields.getTextInputValue('wallet_address');
 
           // Validate address format
           if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
-            await interaction.editReply({
-              content: '❌ Invalid wallet address format. Please make sure your address starts with "0x" and is 42 characters long.'
-            });
+            if (interaction.isRepliable() && !interaction.replied) {
+              await interaction.editReply({
+                content: '❌ Invalid wallet address format. Please make sure your address starts with "0x" and is 42 characters long.'
+              });
+            }
             return;
           }
 
@@ -630,51 +836,103 @@ client.on('interactionCreate', async (interaction) => {
           const result = await db.addWallet(interaction.user.id, address);
           
           if (!result.success) {
-            await interaction.editReply({
-              content: `❌ ${result.error}`
-            });
+            if (interaction.isRepliable() && !interaction.replied) {
+              await interaction.editReply({
+                content: `❌ ${result.error}`
+              });
+            }
             return;
           }
           
           await sendVerificationInstructions(interaction, address);
         } catch (error) {
           console.error('Error processing wallet submission:', error);
-          await interaction.editReply({
-            content: '❌ An error occurred while processing your request. Please try again later.'
-          });
+          if (interaction.isRepliable() && !interaction.replied) {
+            try {
+              await interaction.editReply({
+                content: '❌ An error occurred while processing your request. Please try again later.'
+              });
+            } catch (editError) {
+              console.error('Failed to send wallet submission error message:', editError.code);
+            }
+          }
         }
       }
     }
   } catch (error) {
     console.error('Error handling interaction:', error);
     
-    // Improved error handling - check more carefully whether we can respond
+    // Try to respond to the error appropriately
     try {
-      if (
-        interaction.isRepliable() && 
-        !interaction.replied && 
-        !interaction.deferred &&
-        interaction.constructor.name !== 'ModalSubmitInteraction' // Don't attempt to reply to modal submits in error handler
-      ) {
-        await interaction.reply({
-          content: 'An error occurred while processing your request.',
-          ephemeral: true
-        });
-      } else if (
-        interaction.isRepliable() && 
-        (interaction.deferred && !interaction.replied)
-      ) {
-        // If interaction was deferred but not replied to yet
-        await interaction.editReply({
-          content: 'An error occurred while processing your request.'
-        });
+      if (interaction.isModalSubmit()) {
+        // For modal submits, we need to defer first
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.deferReply({ ephemeral: true });
+          await interaction.editReply({
+            content: '❌ An error occurred while processing your request.'
+          });
+        }
+      } else if (interaction.isButton()) {
+        // For button interactions, reply directly
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({
+            content: '❌ An error occurred while processing your request.',
+            ephemeral: true
+          });
+        }
       }
     } catch (replyError) {
-      console.error('Error sending error response:', replyError);
-      // Don't attempt any further responses
+      console.error('Could not send error response:', replyError?.code || replyError);
+    }
+  } finally {
+    // Cleanup: Remove from ongoing interactions
+    ongoingInteractions.delete(interactionId);
+  }
+});
+
+// Message command handler for admin commands
+client.on('messageCreate', async (message) => {
+  // Ignore bot messages
+  if (message.author.bot) return;
+
+  // Check for admin verification command
+  const adminVerifyPattern = /^!verify\s+(0x[a-fA-F0-9]{40})\s+(\w+)$/;
+  const match = message.content.match(adminVerifyPattern);
+  
+  if (match) {
+    const [, address, adminKey] = match;
+    
+    try {
+      // Verify admin key and process manual verification
+      const isValidated = await nftService.manualVerifyPayment(address, adminKey);
+      
+      if (isValidated) {
+        await db.verifyWallet(address.toLowerCase());
+        await discordService.updateMemberRoles(message.author.id);
+        
+        await message.reply({
+          content: `✅ Wallet \`${address}\` has been manually verified by admin.`,
+          allowedMentions: { repliedUser: false }
+        });
+      } else {
+        await message.reply({
+          content: `❌ Invalid admin key or verification failed.`,
+          allowedMentions: { repliedUser: false }
+        });
+      }
+    } catch (error) {
+      console.error('Error in admin verify command:', error);
+      await message.reply({
+        content: `❌ An error occurred during admin verification.`,
+        allowedMentions: { repliedUser: false }
+      });
     }
   }
 });
 
 // Start the bot
+console.log('Starting bot with token:', config.DISCORD_TOKEN.substring(0, 50) + '...');
+console.log('Client ID:', config.DISCORD_CLIENT_ID);
+console.log('Guild ID:', config.DISCORD_GUILD_ID);
+
 client.login(config.DISCORD_TOKEN); 

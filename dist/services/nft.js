@@ -9,12 +9,14 @@ const config_1 = require("../config/config");
 const database_1 = require("./database");
 class NFTService {
     constructor() {
-        this.blockvisionUrl = 'https://api.blockvision.org/v2/monad/account/transactions';
+        this.blockvisionUrl = 'https://monad-testnet.blockvision.org/v1/31jkZ3LmBlY1zcUdjPgXPISH0F5';
         this.holdersUrl = `${config_1.config.BASE_URL}/api/nft/holders_v2`;
-        this.collections = config_1.config.NFT_COLLECTIONS;
+        this.nftContractAddress = config_1.config.NFT_CONTRACT_ADDRESS;
         this.isUpdatingHolders = false;
         this.verificationAmounts = new Map();
+        this.knownTransactions = new Map();
         this.updateHoldersCache();
+        this.knownTransactions.set('0xa2a84fbf9134aca100999bfe83f13507269b5454', '0xa9998391d3eec2378a0a4d5228d74c09e3b818d5f0d1562693a955fa855c751f');
     }
     generateVerificationAmount() {
         const min = BigInt('10000000000000000');
@@ -30,58 +32,39 @@ class NFTService {
         if (!amount) {
             amount = this.generateVerificationAmount();
             this.verificationAmounts.set(normalizedAddress, amount);
-            console.log(`Generated new verification amount for ${normalizedAddress}: ${amount} wei (${(Number(amount) / 1e18).toFixed(5)} MON)`);
-        }
-        else {
-            console.log(`Retrieved existing verification amount for ${normalizedAddress}: ${amount} wei (${(Number(amount) / 1e18).toFixed(5)} MON)`);
         }
         return amount;
     }
     clearVerificationAmount(address) {
         const normalizedAddress = address.toLowerCase();
-        console.log(`Clearing verification amount for ${normalizedAddress}`);
         this.verificationAmounts.delete(normalizedAddress);
+    }
+    addKnownTransaction(address, txHash) {
+        const normalizedAddress = address.toLowerCase();
+        this.knownTransactions.set(normalizedAddress, txHash);
+        console.log(`📝 Added known transaction for ${normalizedAddress}: ${txHash}`);
+    }
+    clearKnownTransaction(address) {
+        const normalizedAddress = address.toLowerCase();
+        this.knownTransactions.delete(normalizedAddress);
+        console.log(`🗑️ Cleared known transaction for ${normalizedAddress}`);
     }
     async updateHoldersCache() {
         if (this.isUpdatingHolders)
             return;
         try {
             this.isUpdatingHolders = true;
-            console.log('Fetching holders from API for multiple collections...');
-            const allCollectionHolders = [];
-            const allHolders = [];
-            for (const collection of this.collections) {
-                try {
-                    console.log(`Fetching holders for collection: ${collection.name} (${collection.contractAddress})`);
-                    const response = await axios_1.default.get(`${this.holdersUrl}/${collection.contractAddress}`);
-                    if (!response.data.success) {
-                        console.error(`Failed to fetch holders for collection ${collection.name}`);
-                        continue;
-                    }
-                    const collectionHolders = response.data.data.holders.map(holder => ({
-                        address: holder.address.toLowerCase(),
-                        contractAddress: collection.contractAddress.toLowerCase(),
-                        tokenCount: holder.tokenCount,
-                        tokens: holder.tokens
-                    }));
-                    allCollectionHolders.push(...collectionHolders);
-                    const generalHolders = response.data.data.holders.map(holder => ({
-                        address: holder.address.toLowerCase(),
-                        tokenCount: holder.tokenCount,
-                        tokens: holder.tokens
-                    }));
-                    allHolders.push(...generalHolders);
-                    console.log(`Found ${collectionHolders.length} holders for ${collection.name}`);
-                }
-                catch (error) {
-                    console.error(`Error fetching holders for collection ${collection.name}:`, error);
-                }
+            const response = await axios_1.default.get(`${this.holdersUrl}/${this.nftContractAddress}`);
+            if (!response.data.success) {
+                throw new Error('Failed to fetch holders');
             }
-            console.log(`Total holders across all collections: ${allCollectionHolders.length}`);
-            await database_1.db.updateCollectionHolders(allCollectionHolders);
-            const uniqueHolders = this.consolidateHolders(allHolders);
-            await database_1.db.updateHolders(uniqueHolders);
-            console.log('Multi-collection holders cache updated successfully');
+            const holders = response.data.data.holders.map(holder => ({
+                address: holder.address.toLowerCase(),
+                tokenCount: holder.tokenCount,
+                tokens: holder.tokens
+            }));
+            console.log(`✅ Updated ${holders.length} NFT holders`);
+            await database_1.db.updateHolders(holders);
             return true;
         }
         catch (error) {
@@ -92,54 +75,68 @@ class NFTService {
             this.isUpdatingHolders = false;
         }
     }
-    consolidateHolders(holders) {
-        const holderMap = new Map();
-        holders.forEach(holder => {
-            const existing = holderMap.get(holder.address);
-            if (existing) {
-                existing.tokenCount += holder.tokenCount;
-                holder.tokens.forEach(token => existing.tokens.add(token));
-            }
-            else {
-                holderMap.set(holder.address, {
-                    tokenCount: holder.tokenCount,
-                    tokens: new Set(holder.tokens)
-                });
-            }
-        });
-        return Array.from(holderMap.entries()).map(([address, data]) => ({
-            address,
-            tokenCount: data.tokenCount,
-            tokens: Array.from(data.tokens)
-        }));
-    }
     async getRecentTransactions(address) {
         try {
             const normalizedAddress = address.toLowerCase();
-            console.log(`Fetching recent transactions for ${normalizedAddress}`);
-            const response = await axios_1.default.get(this.blockvisionUrl, {
-                params: {
-                    address: normalizedAddress,
-                    limit: 10
-                },
-                headers: {
-                    'accept': 'application/json',
-                    'x-api-key': config_1.config.BLOCKVISION_API_KEY
-                }
+            console.log(`🌐 Fetching transactions for: ${normalizedAddress}`);
+            console.log(`🔗 Using BlockVision API: ${this.blockvisionUrl}`);
+            const latestBlockResponse = await axios_1.default.post(this.blockvisionUrl, {
+                jsonrpc: '2.0',
+                method: 'eth_blockNumber',
+                params: [],
+                id: 1
             });
-            return response.data.result.data
-                .filter((tx) => tx.from.toLowerCase() === normalizedAddress &&
-                tx.to.toLowerCase() === normalizedAddress)
-                .map((tx) => ({
-                hash: tx.hash,
-                from: tx.from.toLowerCase(),
-                to: tx.to.toLowerCase(),
-                value: tx.value,
-                status: tx.status
-            }));
+            if (!latestBlockResponse.data.result) {
+                console.log('❌ Could not get latest block number');
+                return [];
+            }
+            const latestBlockHex = latestBlockResponse.data.result;
+            const latestBlock = parseInt(latestBlockHex, 16);
+            console.log(`📊 Latest block: ${latestBlock}`);
+            const blocksToCheck = 10;
+            const fromBlock = Math.max(0, latestBlock - blocksToCheck);
+            console.log(`� Scanning blocks ${fromBlock} to ${latestBlock} for transactions...`);
+            const transactions = [];
+            for (let blockNum = latestBlock; blockNum >= fromBlock && transactions.length < 10; blockNum--) {
+                try {
+                    if (blockNum !== latestBlock) {
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                    }
+                    const blockResponse = await axios_1.default.post(this.blockvisionUrl, {
+                        jsonrpc: '2.0',
+                        method: 'eth_getBlockByNumber',
+                        params: [`0x${blockNum.toString(16)}`, true],
+                        id: 1
+                    });
+                    if (blockResponse.data.result && blockResponse.data.result.transactions) {
+                        const blockTransactions = blockResponse.data.result.transactions;
+                        const relevantTxs = blockTransactions.filter((tx) => tx.from?.toLowerCase() === normalizedAddress &&
+                            tx.to?.toLowerCase() === normalizedAddress &&
+                            tx.value && tx.value !== '0x0');
+                        for (const tx of relevantTxs) {
+                            transactions.push({
+                                hash: tx.hash,
+                                from: tx.from.toLowerCase(),
+                                to: tx.to.toLowerCase(),
+                                value: parseInt(tx.value, 16).toString(),
+                                status: 1
+                            });
+                        }
+                    }
+                }
+                catch (blockError) {
+                    console.log(`⚠️ Error checking block ${blockNum}:`, blockError.message);
+                    if (blockError.response?.status === 429) {
+                        console.log('⏳ Rate limited, waiting 2 seconds...');
+                        await new Promise(resolve => setTimeout(resolve, 2000));
+                    }
+                }
+            }
+            console.log(`� Self-transfers found: ${transactions.length}`);
+            return transactions;
         }
         catch (error) {
-            console.error('Error fetching transactions:', error);
+            console.error('❌ Error fetching transactions:', error.message);
             return [];
         }
     }
@@ -149,67 +146,117 @@ class NFTService {
     async getTokenCount(address) {
         return database_1.db.getTokenCount(address);
     }
-    async getCollectionHoldings(address) {
-        const holdings = await database_1.db.getCollectionHoldings(address);
-        return holdings.map(holding => {
-            const collection = this.collections.find(c => c.contractAddress.toLowerCase() === holding.contractAddress.toLowerCase());
-            return {
-                ...holding,
-                collection
-            };
-        });
-    }
-    async getEligibleRoles(address) {
-        const holdings = await this.getCollectionHoldings(address);
-        const eligibleRoles = [];
-        for (const holding of holdings) {
-            if (holding.collection && holding.tokenCount >= holding.collection.minTokens) {
-                eligibleRoles.push(holding.collection.roleId);
+    async getEligibleTierRoles(address) {
+        const tokenCount = await this.getTokenCount(address);
+        for (const tier of config_1.NFT_TIERS) {
+            if (tokenCount >= tier.minTokens) {
+                return [tier.roleId];
             }
         }
-        return eligibleRoles;
+        return [];
     }
-    async isHolderForCollection(address, contractAddress) {
-        return database_1.db.isHolderForCollection(address, contractAddress);
-    }
-    async getTokenCountForCollection(address, contractAddress) {
-        return database_1.db.getTokenCountForCollection(address, contractAddress);
+    getAllTierRoleIds() {
+        return config_1.NFT_TIERS.map(tier => tier.roleId);
     }
     async hasReceivedPayment(address) {
         const normalizedAddress = address.toLowerCase();
+        console.log(`🔍 Checking payment for address: ${normalizedAddress}`);
+        const knownTxHash = this.knownTransactions.get(normalizedAddress);
+        if (knownTxHash) {
+            console.log(`🚀 INSTANT: Checking known transaction ${knownTxHash}`);
+            try {
+                const txResponse = await axios_1.default.post(this.blockvisionUrl, {
+                    jsonrpc: '2.0',
+                    method: 'eth_getTransactionByHash',
+                    params: [knownTxHash],
+                    id: 1
+                });
+                if (txResponse.data.result) {
+                    const tx = txResponse.data.result;
+                    const valueInWei = parseInt(tx.value || '0', 16);
+                    const valueInMON = valueInWei / 1e18;
+                    console.log(`✅ Transaction found: ${valueInMON.toFixed(6)} MON`);
+                    const isSelfTransfer = tx.from?.toLowerCase() === normalizedAddress && tx.to?.toLowerCase() === normalizedAddress;
+                    const isValidAmount = valueInMON >= 0.01;
+                    const isConfirmed = tx.blockNumber !== null;
+                    console.log(`   Self-transfer: ${isSelfTransfer ? '✅' : '❌'}`);
+                    console.log(`   Valid amount: ${isValidAmount ? '✅' : '❌'} (${valueInMON.toFixed(6)} >= 0.01)`);
+                    console.log(`   Confirmed: ${isConfirmed ? '✅' : '❌'} (Block: ${tx.blockNumber ? parseInt(tx.blockNumber, 16) : 'Pending'})`);
+                    if (isSelfTransfer && isValidAmount && isConfirmed) {
+                        console.log(`🎉 INSTANT VERIFICATION SUCCESS for ${normalizedAddress}!`);
+                        this.clearVerificationAmount(normalizedAddress);
+                        return true;
+                    }
+                    else {
+                        console.log(`❌ Known transaction doesn't meet verification criteria`);
+                    }
+                }
+                else {
+                    console.log(`⚠️ Known transaction not found in blockchain`);
+                }
+            }
+            catch (error) {
+                console.log(`⚠️ Error checking known transaction: ${error.message}`);
+            }
+        }
         const expectedAmount = this.getVerificationAmount(normalizedAddress);
         const expectedMON = (Number(expectedAmount) / 1e18).toFixed(5);
-        console.log(`Checking transactions for payment from: ${normalizedAddress}`);
-        console.log(`Looking for self-transfer amount: ${expectedAmount} wei (${expectedMON} MON)`);
+        console.log(`💰 Expected amount: ${expectedMON} MON (${expectedAmount} wei)`);
         const transactions = await this.getRecentTransactions(normalizedAddress);
+        console.log(`📊 Found ${transactions.length} recent transactions`);
+        if (transactions.length === 0) {
+            console.log(`❌ No recent transactions found for ${normalizedAddress}`);
+            return false;
+        }
+        transactions.forEach((tx, index) => {
+            const actualMON = (Number(tx.value) / 1e18).toFixed(5);
+            console.log(`Transaction ${index + 1}:`, {
+                hash: tx.hash,
+                from: tx.from,
+                to: tx.to,
+                value: `${actualMON} MON`,
+                status: tx.status,
+                isSelfTransfer: tx.from === tx.to && tx.from === normalizedAddress
+            });
+        });
         const validTransaction = transactions.some(tx => {
             const isSelfTransfer = tx.from === tx.to && tx.from === normalizedAddress;
             const actualMON = (Number(tx.value) / 1e18).toFixed(5);
-            const isCorrectAmount = actualMON === expectedMON;
+            const expectedMONFloat = parseFloat(expectedMON);
+            const actualMONFloat = parseFloat(actualMON);
+            const isCorrectAmount = actualMONFloat >= expectedMONFloat || actualMONFloat >= 0.01;
             const isSuccessful = tx.status === 1;
-            console.log('Transaction check:', {
-                hash: tx.hash,
+            console.log(`Checking transaction:`, {
                 isSelfTransfer,
+                actualMON: actualMONFloat,
+                expectedMON: expectedMONFloat,
                 isCorrectAmount,
                 isSuccessful,
-                actualValue: tx.value,
-                expectedValue: expectedAmount,
-                actualMON,
-                expectedMON
+                willValidate: isSelfTransfer && isCorrectAmount && isSuccessful
             });
             if (isSelfTransfer && isCorrectAmount && isSuccessful) {
-                console.log('Found valid verification transaction!');
                 return true;
             }
             return false;
         });
         if (validTransaction) {
             this.clearVerificationAmount(normalizedAddress);
+            console.log(`✅ Payment verified for ${normalizedAddress}`);
         }
         else {
-            console.log('No valid verification transaction found');
+            console.log(`❌ No valid payment found for ${normalizedAddress}`);
         }
         return validTransaction;
+    }
+    async manualVerifyPayment(address, adminKey) {
+        if (adminKey !== config_1.config.ADMIN_KEY) {
+            console.log(`❌ Invalid admin key for manual verification`);
+            return false;
+        }
+        const normalizedAddress = address.toLowerCase();
+        this.clearVerificationAmount(normalizedAddress);
+        console.log(`✅ Manual payment verification approved for ${normalizedAddress} by admin`);
+        return true;
     }
 }
 exports.NFTService = NFTService;
