@@ -14,8 +14,13 @@ export class DiscordService {
     try {
       const guild = await this.client.guilds.fetch(config.DISCORD_GUILD_ID);
       return await guild.members.fetch(discordId);
-    } catch (error) {
-      console.error('Error fetching guild member:', error);
+    } catch (error: any) {
+      // DiscordAPIError[10007]: Unknown Member
+      if (error && error.code === 10007) {
+        console.log(`User with ID ${discordId} does not exist in the guild anymore.`);
+      } else {
+        console.error('Error fetching guild member:', error);
+      }
       return null;
     }
   }
