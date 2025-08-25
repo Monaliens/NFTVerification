@@ -19,7 +19,6 @@ exports.config = {
     MONAD_RPC_URL: process.env.MONAD_RPC_URL,
     VERIFIED_ROLE_ID: process.env.VERIFIED_ROLE_ID,
     HOLDER_ROLE_ID: process.env.HOLDER_ROLE_ID,
-    WAITING_ROOM_ROLE_ID: process.env.WAITING_ROOM_ROLE_ID,
     ADMIN_KEY: process.env.ADMIN_KEY,
     NFT_1_ROLE_ID: process.env.NFT_1_ROLE_ID,
     NFT_3_ROLE_ID: process.env.NFT_3_ROLE_ID,

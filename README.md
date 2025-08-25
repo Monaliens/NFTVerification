@@ -41,7 +41,6 @@ BLOCKVISION_API_KEY=your_blockvision_api_key
 # Discord Role IDs
 VERIFIED_ROLE_ID=your_verified_role_id
 HOLDER_ROLE_ID=your_holder_role_id
-WAITING_ROOM_ROLE_ID=your_waiting_room_role_id
 ```
 
 4. Generate Prisma client:
