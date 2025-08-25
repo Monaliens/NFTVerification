@@ -10,7 +10,7 @@ generator client {
 
 datasource db {
   provider = "mongodb"
-  url      = env("MONGODB_URI")
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -37,4 +37,22 @@ model Holder {
   tokenCount  Int       @default(0)
   tokens      String[]  @default([])
   lastUpdated DateTime  @default(now())
+  
+  // Collection-specific holdings
+  collectionHoldings CollectionHolding[]
+}
+
+model CollectionHolding {
+  id              String    @id @default(auto()) @map("_id") @db.ObjectId
+  address         String
+  contractAddress String
+  tokenCount      Int       @default(0)
+  tokens          String[]  @default([])
+  lastUpdated     DateTime  @default(now())
+  
+  // Relations
+  holder          Holder    @relation(fields: [holderId], references: [id])
+  holderId        String    @db.ObjectId
+  
+  @@unique([address, contractAddress])
 }

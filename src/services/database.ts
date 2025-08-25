@@ -7,6 +7,13 @@ interface HolderData {
   tokens: string[];
 }
 
+interface CollectionHolderData {
+  address: string;
+  contractAddress: string;
+  tokenCount: number;
+  tokens: string[];
+}
+
 class DatabaseService {
   private prisma: PrismaClient;
 
@@ -32,6 +39,79 @@ class DatabaseService {
   async getAllUsers() {
     return this.prisma.user.findMany({
       include: { wallets: true }
+    });
+  }
+
+  // Get count of verified wallets
+  async getVerifiedWalletCount(): Promise<number> {
+    return this.prisma.wallet.count({
+      where: { isVerified: true }
+    });
+  }
+
+  // Get count of verified users (users with at least one verified wallet)
+  async getVerifiedUserCount(): Promise<number> {
+    const users = await this.prisma.user.findMany({
+      include: {
+        wallets: {
+          where: { isVerified: true }
+        }
+      }
+    });
+    
+    return users.filter(user => user.wallets.length > 0).length;
+  }
+
+  // Get users with NFTs (from holders table)
+  async getUsersWithNFTs(): Promise<{ userCount: number; totalNFTs: number }> {
+    try {
+      const holders = await this.prisma.holder.findMany();
+      const totalNFTs = holders.reduce((sum, holder) => sum + holder.tokenCount, 0);
+      
+      return {
+        userCount: holders.length,
+        totalNFTs: totalNFTs
+      };
+    } catch (error) {
+      console.error('Error getting users with NFTs:', error);
+      return { userCount: 0, totalNFTs: 0 };
+    }
+  }
+
+  // Get only users with NFTs for role updates (excluding verified-only users)
+  async getUsersWithNFTsForRoleUpdate() {
+    try {
+      // Get all verified wallets that have NFTs
+      const holders = await this.prisma.holder.findMany();
+      const walletAddressesWithNFTs = holders.map(h => h.address.toLowerCase());
+      
+      // Get users who have verified wallets with NFTs
+      const users = await this.prisma.user.findMany({
+        include: {
+          wallets: {
+            where: {
+              isVerified: true,
+              address: {
+                in: walletAddressesWithNFTs
+              }
+            }
+          }
+        }
+      });
+      
+      // Return only users who have verified wallets with NFTs
+      return users.filter(user => user.wallets.length > 0);
+    } catch (error) {
+      console.error('Error getting users with NFTs for role update:', error);
+      return [];
+    }
+  }
+
+  // Get all verified wallets
+  async getAllVerifiedWallets() {
+    return this.prisma.wallet.findMany({
+      where: { isVerified: true },
+      include: { user: true }
     });
   }
 
@@ -125,6 +205,17 @@ class DatabaseService {
       where: { address: normalizedAddress },
       data: { isVerified: true }
     });
+  }
+
+  async isWalletVerified(address: string): Promise<boolean> {
+    const normalizedAddress = address.toLowerCase();
+    
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { address: normalizedAddress },
+      select: { isVerified: true }
+    });
+
+    return wallet?.isVerified || false;
   }
 
   async getUserWallets(discordId: string) {
@@ -240,6 +331,94 @@ class DatabaseService {
     );
 
     return wallets;
+  }
+
+  // Collection-specific holder operations
+  async updateCollectionHolders(collectionHolders: CollectionHolderData[]): Promise<void> {
+    try {
+      // Delete all existing collection holdings
+      await this.prisma.collectionHolding.deleteMany({});
+      
+      // Group holdings by address to manage holder relationships
+      const holderAddresses = [...new Set(collectionHolders.map(h => h.address))];
+      
+      // Ensure all holder records exist
+      for (const address of holderAddresses) {
+        await this.prisma.holder.upsert({
+          where: { address },
+          create: { 
+            address, 
+            tokenCount: 0, 
+            tokens: [],
+            lastUpdated: new Date()
+          },
+          update: { lastUpdated: new Date() }
+        });
+      }
+
+      // Add new collection holdings
+      if (collectionHolders.length > 0) {
+        for (const holding of collectionHolders) {
+          const holder = await this.prisma.holder.findUnique({
+            where: { address: holding.address }
+          });
+
+          if (holder) {
+            await this.prisma.collectionHolding.create({
+              data: {
+                address: holding.address,
+                contractAddress: holding.contractAddress,
+                tokenCount: holding.tokenCount,
+                tokens: holding.tokens,
+                holderId: holder.id,
+                lastUpdated: new Date()
+              }
+            });
+          }
+        }
+      }
+
+      console.log('Collection holders update completed successfully');
+    } catch (error) {
+      console.error('Error updating collection holders:', error);
+      throw error;
+    }
+  }
+
+  async getCollectionHoldings(address: string): Promise<{ contractAddress: string; tokenCount: number; tokens: string[] }[]> {
+    const holdings = await this.prisma.collectionHolding.findMany({
+      where: { address: address.toLowerCase() }
+    });
+
+    return holdings.map(holding => ({
+      contractAddress: holding.contractAddress,
+      tokenCount: holding.tokenCount,
+      tokens: holding.tokens
+    }));
+  }
+
+  async isHolderForCollection(address: string, contractAddress: string): Promise<boolean> {
+    const holding = await this.prisma.collectionHolding.findUnique({
+      where: { 
+        address_contractAddress: {
+          address: address.toLowerCase(),
+          contractAddress: contractAddress.toLowerCase()
+        }
+      }
+    });
+    return !!holding;
+  }
+
+  async getTokenCountForCollection(address: string, contractAddress: string): Promise<number> {
+    const holding = await this.prisma.collectionHolding.findUnique({
+      where: { 
+        address_contractAddress: {
+          address: address.toLowerCase(),
+          contractAddress: contractAddress.toLowerCase()
+        }
+      }
+    });
+    return holding?.tokenCount || 0;
   }
 }
 
