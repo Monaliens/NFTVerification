@@ -1,1 +1,1 @@
-{"version":3,"file":"register.js","sourceRoot":"","sources":["../src/register.ts"],"names":[],"mappings":";;AAAA,+CAAwC;AACxC,+BAA4B;AAG5B,IAAA,uBAAQ,EAAC,GAAG,EAAE,IAAA,WAAI,EAAC,SAAS,CAAC,CAAC,CAAC"}
+{"version":3,"file":"register.js","sourceRoot":"","sources":["../src/register.ts"],"names":[],"mappings":";;AAAA,+CAAwC;AACxC,+BAA4B;AAG5B,IAAA,uBAAQ,EAAC,GAAG,EAAE,IAAA,WAAI,EAAC,SAAS,EAAE,IAAI,CAAC,CAAC,CAAC"}

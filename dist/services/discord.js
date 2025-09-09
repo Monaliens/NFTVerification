@@ -15,7 +15,12 @@ class DiscordService {
             return await guild.members.fetch(discordId);
         }
         catch (error) {
-            console.error('Error fetching guild member:', error);
+            if (error && error.code === 10007) {
+                console.log(`User with ID ${discordId} does not exist in the guild anymore.`);
+            }
+            else {
+                console.error('Error fetching guild member:', error);
+            }
             return null;
         }
     }

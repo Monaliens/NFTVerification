@@ -5,6 +5,17 @@ const client_1 = require("@prisma/client");
 class DatabaseService {
     constructor() {
         this.prisma = new client_1.PrismaClient();
+        this.connectWithRetry();
+    }
+    async connectWithRetry() {
+        try {
+            await this.prisma.$connect();
+            console.log('✅ Database connected successfully');
+        }
+        catch (error) {
+            console.error('❌ Database connection failed:', error);
+            setTimeout(() => this.connectWithRetry(), 5000);
+        }
     }
     async createUser(discordId) {
         return this.prisma.user.create({
@@ -36,7 +47,7 @@ class DatabaseService {
                 }
             }
         });
-        return users.filter(user => user.wallets.length > 0).length;
+        return users.filter((user) => user.wallets.length > 0).length;
     }
     async getUsersWithNFTs() {
         try {
@@ -55,7 +66,7 @@ class DatabaseService {
     async getUsersWithNFTsForRoleUpdate() {
         try {
             const holders = await this.prisma.holder.findMany();
-            const walletAddressesWithNFTs = holders.map(h => h.address.toLowerCase());
+            const walletAddressesWithNFTs = holders.map((h) => h.address.toLowerCase());
             const users = await this.prisma.user.findMany({
                 include: {
                     wallets: {
@@ -68,7 +79,7 @@ class DatabaseService {
                     }
                 }
             });
-            return users.filter(user => user.wallets.length > 0);
+            return users.filter((user) => user.wallets.length > 0);
         }
         catch (error) {
             console.error('Error getting users with NFTs for role update:', error);
@@ -298,7 +309,7 @@ class DatabaseService {
         const holdings = await this.prisma.collectionHolding.findMany({
             where: { address: address.toLowerCase() }
         });
-        return holdings.map(holding => ({
+        return holdings.map((holding) => ({
             contractAddress: holding.contractAddress,
             tokenCount: holding.tokenCount,
             tokens: holding.tokens
