@@ -157,7 +157,7 @@ export class NFTService {
         try {
           // Add delay between requests to avoid rate limiting
           if (blockNum !== latestBlock) {
-            await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay
+            await new Promise(resolve => setTimeout(resolve, 500)); // 500ms delay for better rate limiting
           }
           const blockResponse = await axios.post(this.blockvisionUrl, {
             jsonrpc: '2.0',
