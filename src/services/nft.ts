@@ -216,15 +216,10 @@ export class NFTService {
   // Tier-based role methods
   async getEligibleTierRoles(address: string): Promise<string[]> {
     const tokenCount = await this.getTokenCount(address);
-    
-    // Find the highest tier the user qualifies for
-    for (const tier of NFT_TIERS) {
-      if (tokenCount >= tier.minTokens) {
-        return [tier.roleId];
-      }
-    }
-
-    return [];
+    // Kullanıcının sahip olduğu tüm alt tier rolleri de dahil et
+    const eligibleRoles = NFT_TIERS.filter(tier => tokenCount >= tier.minTokens)
+      .map(tier => tier.roleId);
+    return eligibleRoles;
   }
 
   // Get all tier role IDs for management
