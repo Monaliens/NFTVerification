@@ -19,6 +19,17 @@ class DatabaseService {
 
   constructor() {
     this.prisma = new PrismaClient();
+    this.connectWithRetry();
+  }
+
+  private async connectWithRetry() {
+    try {
+      await this.prisma.$connect();
+      console.log('✅ Database connected successfully');
+    } catch (error) {
+      console.error('❌ Database connection failed:', error);
+      setTimeout(() => this.connectWithRetry(), 5000); // Retry after 5 seconds
+    }
   }
 
   // User Operations
@@ -59,14 +70,14 @@ class DatabaseService {
       }
     });
     
-    return users.filter(user => user.wallets.length > 0).length;
+    return users.filter((user: any) => user.wallets.length > 0).length;
   }
 
   // Get users with NFTs (from holders table)
   async getUsersWithNFTs(): Promise<{ userCount: number; totalNFTs: number }> {
     try {
       const holders = await this.prisma.holder.findMany();
-      const totalNFTs = holders.reduce((sum, holder) => sum + holder.tokenCount, 0);
+      const totalNFTs = holders.reduce((sum: number, holder: any) => sum + holder.tokenCount, 0);
       
       return {
         userCount: holders.length,
@@ -83,7 +94,7 @@ class DatabaseService {
     try {
       // Get all verified wallets that have NFTs
       const holders = await this.prisma.holder.findMany();
-      const walletAddressesWithNFTs = holders.map(h => h.address.toLowerCase());
+      const walletAddressesWithNFTs = holders.map((h: any) => h.address.toLowerCase());
       
       // Get users who have verified wallets with NFTs
       const users = await this.prisma.user.findMany({
@@ -100,7 +111,7 @@ class DatabaseService {
       });
       
       // Return only users who have verified wallets with NFTs
-      return users.filter(user => user.wallets.length > 0);
+      return users.filter((user: any) => user.wallets.length > 0);
     } catch (error) {
       console.error('Error getting users with NFTs for role update:', error);
       return [];
@@ -320,7 +331,7 @@ class DatabaseService {
     }
 
     const wallets = await Promise.all(
-      user.wallets.map(async wallet => {
+      user.wallets.map(async (wallet: any) => {
         const tokenCount = await this.getTokenCount(wallet.address);
         return {
           address: wallet.address,
@@ -390,7 +401,7 @@ class DatabaseService {
       where: { address: address.toLowerCase() }
     });
 
-    return holdings.map(holding => ({
+    return holdings.map((holding: any) => ({
       contractAddress: holding.contractAddress,
       tokenCount: holding.tokenCount,
       tokens: holding.tokens

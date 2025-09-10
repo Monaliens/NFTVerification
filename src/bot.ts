@@ -538,23 +538,40 @@ client.on('interactionCreate', async (interaction) => {
 
         default:
           if (buttonInteraction.customId.startsWith('check_payment_')) {
-            // Early check to prevent double handling
+            // Strong duplicate prevention
             if (buttonInteraction.replied || buttonInteraction.deferred) {
-              console.log('Check payment interaction already handled, aborting');
+              console.log('Check payment interaction already handled, skipping');
+              ongoingInteractions.delete(interactionId);
               return;
             }
             
             try {
-              await buttonInteraction.deferReply({ ephemeral: true });
-              const address = buttonInteraction.customId.split('_')[2];
+              // Defer reply with additional error handling
+              try {
+                await buttonInteraction.deferReply({ ephemeral: true });
+              } catch (deferError: any) {
+                if (deferError.code === 40060 || deferError.code === 10062) {
+                  console.log('Interaction already acknowledged or unknown, skipping');
+                  ongoingInteractions.delete(interactionId);
+                  return;
+                }
+                throw deferError;
+              }
               
+              const address = buttonInteraction.customId.split('_')[2];
               console.log(`🔍 Checking payment for address: ${address}`);
+              
+              // Additional safety check
+              if (!buttonInteraction.deferred && !buttonInteraction.replied) {
+                console.log('Interaction not properly deferred, aborting');
+                return;
+              }
               
               // Check if payment was received for this specific address
               const hasReceived = await nftService.hasReceivedPayment(address);
               
-              // Check again if interaction is still valid
-              if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+              // Comprehensive validity check before proceeding
+              if (!buttonInteraction.isRepliable() || buttonInteraction.replied || !buttonInteraction.deferred) {
                 console.log('Interaction no longer valid after payment check, aborting');
                 return;
               }
@@ -701,25 +718,64 @@ client.on('interactionCreate', async (interaction) => {
                   }
                 }, 120000); // 2 minutes
               }
-            } catch (error) {
+            } catch (error: any) {
               console.error('Error in check_payment handler:', error);
               
-              // Only try to edit reply if the interaction is still valid
-              if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
-                try {
-                  await buttonInteraction.editReply({
-                    content: 'An error occurred while processing your payment verification. Please try again.'
-                  });
-                } catch (editError) {
-                  console.error('Failed to send check_payment error message:', editError.code);
+              // Smart error response handling
+              try {
+                if (error.code === 40060 || error.code === 10062) {
+                  // Interaction already acknowledged or unknown - just log and continue
+                  console.log('Interaction already handled or expired, skipping error response');
+                  return;
                 }
+                
+                // Only try to edit reply if the interaction is properly deferred
+                if (buttonInteraction.deferred && !buttonInteraction.replied) {
+                  await buttonInteraction.editReply({
+                    content: 'An error occurred while processing your payment verification. Please try again.',
+                    components: []
+                  });
+                } else if (!buttonInteraction.replied && !buttonInteraction.deferred) {
+                  // Try to reply if we haven't done anything yet
+                  await buttonInteraction.reply({
+                    content: 'An error occurred while processing your request.',
+                    ephemeral: true
+                  });
+                }
+              } catch (editError: any) {
+                console.error('Failed to send check_payment error message:', editError.code || editError.message);
               }
             }
-          } else if (buttonInteraction.customId.startsWith('delete_')) {
+          }
+          
+          if (buttonInteraction.customId.startsWith('delete_')) {
+            // Check if already handled
+            if (buttonInteraction.replied || buttonInteraction.deferred) {
+              console.log('Delete wallet interaction already handled, skipping');
+              ongoingInteractions.delete(interactionId);
+              return;
+            }
+            
             const address = buttonInteraction.customId.replace('delete_', '');
-            await buttonInteraction.deferReply({ ephemeral: true });
             
             try {
+              await buttonInteraction.deferReply({ ephemeral: true });
+            } catch (deferError: any) {
+              if (deferError.code === 40060 || deferError.code === 10062) {
+                console.log('Delete interaction already acknowledged or unknown, skipping');
+                ongoingInteractions.delete(interactionId);
+                return;
+              }
+              throw deferError;
+            }
+            
+            try {
+              // Additional validity check after defer
+              if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                console.log('Interaction invalid after defer, aborting wallet deletion');
+                return;
+              }
+              
               await db.deleteWallet(buttonInteraction.user.id, address);
               
               // Update roles after wallet deletion
@@ -730,9 +786,17 @@ client.on('interactionCreate', async (interaction) => {
               });
             } catch (error) {
               console.error('Error deleting wallet:', error);
-              await buttonInteraction.editReply({
-                content: 'An error occurred while removing the wallet.'
-              });
+              
+              // Only edit if interaction is still valid
+              if (buttonInteraction.isRepliable() && buttonInteraction.deferred && !buttonInteraction.replied) {
+                try {
+                  await buttonInteraction.editReply({
+                    content: 'An error occurred while removing the wallet.'
+                  });
+                } catch (editError) {
+                  console.error('Failed to send delete wallet error message:', editError.code || editError.message);
+                }
+              }
             }
           }
           break;

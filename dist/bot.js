@@ -412,15 +412,30 @@ client.on('interactionCreate', async (interaction) => {
                 default:
                     if (buttonInteraction.customId.startsWith('check_payment_')) {
                         if (buttonInteraction.replied || buttonInteraction.deferred) {
-                            console.log('Check payment interaction already handled, aborting');
+                            console.log('Check payment interaction already handled, skipping');
+                            ongoingInteractions.delete(interactionId);
                             return;
                         }
                         try {
-                            await buttonInteraction.deferReply({ ephemeral: true });
+                            try {
+                                await buttonInteraction.deferReply({ ephemeral: true });
+                            }
+                            catch (deferError) {
+                                if (deferError.code === 40060 || deferError.code === 10062) {
+                                    console.log('Interaction already acknowledged or unknown, skipping');
+                                    ongoingInteractions.delete(interactionId);
+                                    return;
+                                }
+                                throw deferError;
+                            }
                             const address = buttonInteraction.customId.split('_')[2];
                             console.log(`🔍 Checking payment for address: ${address}`);
+                            if (!buttonInteraction.deferred && !buttonInteraction.replied) {
+                                console.log('Interaction not properly deferred, aborting');
+                                return;
+                            }
                             const hasReceived = await nft_1.nftService.hasReceivedPayment(address);
-                            if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                            if (!buttonInteraction.isRepliable() || buttonInteraction.replied || !buttonInteraction.deferred) {
                                 console.log('Interaction no longer valid after payment check, aborting');
                                 return;
                             }
@@ -544,22 +559,52 @@ client.on('interactionCreate', async (interaction) => {
                         }
                         catch (error) {
                             console.error('Error in check_payment handler:', error);
-                            if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
-                                try {
+                            try {
+                                if (error.code === 40060 || error.code === 10062) {
+                                    console.log('Interaction already handled or expired, skipping error response');
+                                    return;
+                                }
+                                if (buttonInteraction.deferred && !buttonInteraction.replied) {
                                     await buttonInteraction.editReply({
-                                        content: 'An error occurred while processing your payment verification. Please try again.'
+                                        content: 'An error occurred while processing your payment verification. Please try again.',
+                                        components: []
                                     });
                                 }
-                                catch (editError) {
-                                    console.error('Failed to send check_payment error message:', editError.code);
+                                else if (!buttonInteraction.replied && !buttonInteraction.deferred) {
+                                    await buttonInteraction.reply({
+                                        content: 'An error occurred while processing your request.',
+                                        ephemeral: true
+                                    });
                                 }
+                            }
+                            catch (editError) {
+                                console.error('Failed to send check_payment error message:', editError.code || editError.message);
                             }
                         }
                     }
-                    else if (buttonInteraction.customId.startsWith('delete_')) {
+                    if (buttonInteraction.customId.startsWith('delete_')) {
+                        if (buttonInteraction.replied || buttonInteraction.deferred) {
+                            console.log('Delete wallet interaction already handled, skipping');
+                            ongoingInteractions.delete(interactionId);
+                            return;
+                        }
                         const address = buttonInteraction.customId.replace('delete_', '');
-                        await buttonInteraction.deferReply({ ephemeral: true });
                         try {
+                            await buttonInteraction.deferReply({ ephemeral: true });
+                        }
+                        catch (deferError) {
+                            if (deferError.code === 40060 || deferError.code === 10062) {
+                                console.log('Delete interaction already acknowledged or unknown, skipping');
+                                ongoingInteractions.delete(interactionId);
+                                return;
+                            }
+                            throw deferError;
+                        }
+                        try {
+                            if (!buttonInteraction.isRepliable() || buttonInteraction.replied) {
+                                console.log('Interaction invalid after defer, aborting wallet deletion');
+                                return;
+                            }
                             await database_1.db.deleteWallet(buttonInteraction.user.id, address);
                             await discordService.updateMemberRoles(buttonInteraction.user.id);
                             await buttonInteraction.editReply({
@@ -568,9 +613,16 @@ client.on('interactionCreate', async (interaction) => {
                         }
                         catch (error) {
                             console.error('Error deleting wallet:', error);
-                            await buttonInteraction.editReply({
-                                content: 'An error occurred while removing the wallet.'
-                            });
+                            if (buttonInteraction.isRepliable() && buttonInteraction.deferred && !buttonInteraction.replied) {
+                                try {
+                                    await buttonInteraction.editReply({
+                                        content: 'An error occurred while removing the wallet.'
+                                    });
+                                }
+                                catch (editError) {
+                                    console.error('Failed to send delete wallet error message:', editError.code || editError.message);
+                                }
+                            }
                         }
                     }
                     break;

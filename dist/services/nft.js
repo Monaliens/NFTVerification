@@ -100,7 +100,7 @@ class NFTService {
             for (let blockNum = latestBlock; blockNum >= fromBlock && transactions.length < 10; blockNum--) {
                 try {
                     if (blockNum !== latestBlock) {
-                        await new Promise(resolve => setTimeout(resolve, 200));
+                        await new Promise(resolve => setTimeout(resolve, 500));
                     }
                     const blockResponse = await axios_1.default.post(this.blockvisionUrl, {
                         jsonrpc: '2.0',
