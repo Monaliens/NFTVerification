@@ -17,7 +17,6 @@ import {
 import { config } from '@/config/config';
 import { db } from '@/services/database';
 import { nftService } from '@/services/nft';
-import { stakingService } from '@/services/staking';
 import { createDiscordService } from '@/services/discord';
 
 const client = new Client({
@@ -348,30 +347,20 @@ client.on('interactionCreate', async (interaction) => {
             modal.addComponents(firstActionRow);
 
             await buttonInteraction.showModal(modal);
-          } catch (error) {
+          } catch (error: any) {
             console.error('Error showing wallet modal:', error);
-            // Safe error response
-            if (!buttonInteraction.replied && !buttonInteraction.deferred) {
-              try {
-                await buttonInteraction.reply({
-                  content: '❌ An error occurred while opening the wallet form.',
-                  ephemeral: true
-                });
-              } catch (replyError) {
-                console.error('Failed to send error response:', replyError.code);
-              }
-            }
+            ongoingInteractions.delete(interactionId);
+            // Don't try to reply after modal error - interaction is consumed
           }
           break;
-        }        case 'update_holdings': {
-          // Safe defer with error handling
-          if (!buttonInteraction.deferred && !buttonInteraction.replied) {
-            try {
-              await buttonInteraction.deferReply({ ephemeral: true });
-            } catch (error) {
-              console.error('Failed to defer reply for update_holdings:', error.code);
-              break;
-            }
+        }
+        case 'update_holdings': {
+          try {
+            await buttonInteraction.deferReply({ ephemeral: true });
+          } catch (error: any) {
+            console.error('Failed to defer update_holdings reply:', error.code);
+            ongoingInteractions.delete(interactionId);
+            return;
           }
           
           try {
@@ -406,64 +395,40 @@ client.on('interactionCreate', async (interaction) => {
             else if (totalNFTs >= 1) tierInfo = '🥉 **Bronze Tier** (1+ NFTs)';
             else tierInfo = '❌ **No NFT Tier** (0 NFTs)';
             
-            let walletDetails = '';
             if (walletInfos.length > 0) {
-              walletDetails = '\n\n📋 **Wallet Breakdown:**\n';
-              walletInfos.forEach((info, index) => {
-                const shortAddr = `${info.address.slice(0, 6)}...${info.address.slice(-4)}`;
-                walletDetails += `${index + 1}. \`${shortAddr}\`: ${info.nfts} NFT${info.nfts !== 1 ? 's' : ''}\n`;
-              });
+              const walletList = walletInfos.map((info, index) => {
+                return `**${index + 1}.** \`${info.address.substring(0, 6)}...${info.address.substring(38)}\` - ${info.nfts} NFT${info.nfts !== 1 ? 's' : ''}`;
+              }).join('\n');
             }
             
             const embedColor = totalNFTs > 0 ? 0x00ff00 : 0xffaa00;
             
-            const updateEmbed = new EmbedBuilder()
+            const embed = new EmbedBuilder()
               .setColor(embedColor)
               .setTitle('🔄 Holdings Updated')
               .setDescription(
-                `✅ Your roles have been updated based on your NFT holdings!\n\n` +
+                `Your roles have been updated based on current NFT holdings.\n\n` +
                 `🎨 **Total NFTs:** ${totalNFTs}\n` +
                 `🎭 **Current Tier:** ${tierInfo}` +
-                walletDetails
+                (walletInfos.length > 0 ? `\n\n**Verified Wallets:**\n${walletInfos.map((info, index) => `**${index + 1}.** \`${info.address.substring(0, 6)}...${info.address.substring(38)}\` - ${info.nfts} NFT${info.nfts !== 1 ? 's' : ''}`).join('\n')}` : '')
               )
               .addFields(
-                { name: '👤 Discord User', value: `<@${buttonInteraction.user.id}>`, inline: true },
                 { name: '📊 Total NFTs', value: `${totalNFTs}`, inline: true },
-                { name: '🔗 Verified Wallets', value: `${verifiedWallets.length}`, inline: true }
+                { name: 'Verified Wallets', value: `${verifiedWallets.length}`, inline: true }
               )
               .setTimestamp();
-            
-            // Check if the interaction is still valid
+
             if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
               await buttonInteraction.editReply({
-                embeds: [updateEmbed]
+                embeds: [embed]
               });
-              
-              // Delete message after 2 minutes
-              setTimeout(async () => {
-                try {
-                  if (buttonInteraction.isRepliable()) {
-                    await buttonInteraction.deleteReply().catch(err => {
-                      console.error('Failed to delete roles update message (likely expired):', err.code);
-                    });
-                  }
-                } catch (error) {
-                  console.error('Error deleting roles update message:', error);
-                }
-              }, 120000); // 2 minutes
             }
           } catch (error) {
-            console.error('Error updating roles:', error);
-            
-            // Only attempt to edit if the interaction is still valid
+            console.error('Error updating holdings:', error);
             if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
-              try {
-                await buttonInteraction.editReply({
-                  content: 'An error occurred while updating your roles. Please try again.'
-                });
-              } catch (editError) {
-                console.error('Failed to send role update error message:', editError.code);
-              }
+              await buttonInteraction.editReply({
+                content: 'An error occurred while updating your holdings.'
+              });
             }
           }
           break;
@@ -801,7 +766,11 @@ client.on('interactionCreate', async (interaction) => {
             }
           }
           break;
-      }
+      } // Switch statement kapanışı
+      
+      // Remove from ongoing interactions after processing
+      ongoingInteractions.delete(interactionId);
+      
     } else if (interaction.isModalSubmit()) {
       // Check if modal interaction is already handled
       if (interaction.replied || interaction.deferred) {
@@ -989,133 +958,6 @@ client.on('messageCreate', async (message) => {
       console.error('Error in admin verify command:', error);
       await message.reply({
         content: `❌ An error occurred during admin verification.`,
-        allowedMentions: { repliedUser: false }
-      });
-    }
-  }
-
-  // Staking admin commands
-  const stakingAddPattern = /^!staking add\s+(0x[a-fA-F0-9]{40})\s+(\w+)$/;
-  const stakingRemovePattern = /^!staking remove\s+(0x[a-fA-F0-9]{40})\s+(\w+)$/;
-  const stakingListPattern = /^!staking list\s+(\w+)$/;
-  const stakingStatsPattern = /^!staking stats\s+(\w+)$/;
-
-  const stakingAddMatch = message.content.match(stakingAddPattern);
-  const stakingRemoveMatch = message.content.match(stakingRemovePattern);
-  const stakingListMatch = message.content.match(stakingListPattern);
-  const stakingStatsMatch = message.content.match(stakingStatsPattern);
-
-  if (stakingAddMatch) {
-    const [, address, adminKey] = stakingAddMatch;
-    
-    if (adminKey !== config.ADMIN_KEY) {
-      await message.reply({
-        content: `❌ Invalid admin key.`,
-        allowedMentions: { repliedUser: false }
-      });
-      return;
-    }
-
-    try {
-      stakingService.addStakingAddress(address);
-      await message.reply({
-        content: `✅ Added \`${address}\` to staking list. Roles will be protected.`,
-        allowedMentions: { repliedUser: false }
-      });
-    } catch (error) {
-      console.error('Error adding staking address:', error);
-      await message.reply({
-        content: `❌ An error occurred while adding staking address.`,
-        allowedMentions: { repliedUser: false }
-      });
-    }
-  }
-
-  if (stakingRemoveMatch) {
-    const [, address, adminKey] = stakingRemoveMatch;
-    
-    if (adminKey !== config.ADMIN_KEY) {
-      await message.reply({
-        content: `❌ Invalid admin key.`,
-        allowedMentions: { repliedUser: false }
-      });
-      return;
-    }
-
-    try {
-      stakingService.removeStakingAddress(address);
-      await message.reply({
-        content: `✅ Removed \`${address}\` from staking list.`,
-        allowedMentions: { repliedUser: false }
-      });
-    } catch (error) {
-      console.error('Error removing staking address:', error);
-      await message.reply({
-        content: `❌ An error occurred while removing staking address.`,
-        allowedMentions: { repliedUser: false }
-      });
-    }
-  }
-
-  if (stakingListMatch) {
-    const [, adminKey] = stakingListMatch;
-    
-    if (adminKey !== config.ADMIN_KEY) {
-      await message.reply({
-        content: `❌ Invalid admin key.`,
-        allowedMentions: { repliedUser: false }
-      });
-      return;
-    }
-
-    try {
-      const stakingAddresses = await stakingService.getStakingAddresses();
-      
-      if (stakingAddresses.length === 0) {
-        await message.reply({
-          content: `📋 No staking addresses found.`,
-          allowedMentions: { repliedUser: false }
-        });
-      } else {
-        const addressList = stakingAddresses.map((addr, index) => `${index + 1}. \`${addr}\``).join('\n');
-        await message.reply({
-          content: `📋 **Staking Addresses (${stakingAddresses.length} total):**\n${addressList}`,
-          allowedMentions: { repliedUser: false }
-        });
-      }
-    } catch (error) {
-      console.error('Error listing staking addresses:', error);
-      await message.reply({
-        content: `❌ An error occurred while listing staking addresses.`,
-        allowedMentions: { repliedUser: false }
-      });
-    }
-  }
-
-  if (stakingStatsMatch) {
-    const [, adminKey] = stakingStatsMatch;
-    
-    if (adminKey !== config.ADMIN_KEY) {
-      await message.reply({
-        content: `❌ Invalid admin key.`,
-        allowedMentions: { repliedUser: false }
-      });
-      return;
-    }
-
-    try {
-      const stats = stakingService.getStakingStats();
-      await message.reply({
-        content: `📊 **Staking Statistics:**\n` +
-                `• Total Stakers: ${stats.totalStakers}\n` +
-                `• Last Update: ${stats.lastUpdate.toLocaleString()}\n` +
-                `• Protection: ${stats.totalStakers > 0 ? '🛡️ Active' : '❌ No protected wallets'}`,
-        allowedMentions: { repliedUser: false }
-      });
-    } catch (error) {
-      console.error('Error getting staking stats:', error);
-      await message.reply({
-        content: `❌ An error occurred while getting staking statistics.`,
         allowedMentions: { repliedUser: false }
       });
     }

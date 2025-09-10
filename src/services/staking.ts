@@ -1,125 +1,122 @@
-interface StakerInfo {
-  address: string;
-  tokenCount: number;
-  tokenIds: string[];
-  stakeDurations: string[];
-}
+import { ethers } from 'ethers';
+import { config } from '@/config/config';
 
-export class StakingService {
-  // Staking adresleri cache'i - her 10 dakikada bir güncellenecek
+// Basit staking protection sistemi
+class StakingService {
   private stakingAddresses: Set<string> = new Set();
-  private lastUpdate: number = 0;
-  private readonly updateInterval = 10 * 60 * 1000; // 10 dakika
+  private lastUpdate: Date = new Date();
+
+  private readonly ABI = [
+    {
+      inputs: [],
+      name: "getStakersSnapshot",
+      outputs: [
+        {
+          internalType: "address[]",
+          name: "stakers",
+          type: "address[]",
+        },
+        {
+          internalType: "uint256[][]",
+          name: "tokenIds", 
+          type: "uint256[][]",
+        },
+        {
+          internalType: "uint256[][]",
+          name: "stakeDurations",
+          type: "uint256[][]",
+        },
+      ],
+      stateMutability: "view",
+      type: "function",
+    },
+  ];
 
   constructor() {
-    // İlk yüklemede staking verilerini çek
-    this.updateStakingData();
+    // Contract adresi varsa staking'i başlat
+    if (config.STAKING_CONTRACT_ADDRESS && config.STAKING_CONTRACT_ADDRESS !== 'undefined') {
+      console.log('🥩 Staking protection enabled');
+      // Başlangıçta snapshot çek
+      this.updateSnapshot();
+      
+      // Her 10 dakikada bir güncelle
+      setInterval(() => {
+        this.updateSnapshot();
+      }, 10 * 60 * 1000);
+    } else {
+      console.log('⚠️ Staking contract address not configured - staking protection disabled');
+    }
   }
 
-  async updateStakingData(): Promise<void> {
+  async updateSnapshot(): Promise<void> {
     try {
-      console.log('🔄 Updating staking data...');
+      console.log('📸 Fetching staking snapshot...');
       
-      // For now, we'll use the provided script approach
-      // This will be improved to use proper contract calls
-      const stakingData = await this.getStakingSnapshot();
-      
-      // Update cache
-      this.stakingAddresses.clear();
-      stakingData.forEach(staker => {
-        this.stakingAddresses.add(staker.address.toLowerCase());
-      });
-
-      this.lastUpdate = Date.now();
-      
-      console.log(`✅ Updated staking data: ${this.stakingAddresses.size} stakers found`);
-      
-      // Log stakers for debugging
-      if (this.stakingAddresses.size > 0) {
-        console.log('📋 Staking addresses:', Array.from(this.stakingAddresses));
+      // Contract address kontrolü
+      if (!config.STAKING_CONTRACT_ADDRESS) {
+        console.log('⚠️ STAKING_CONTRACT_ADDRESS not configured, skipping staking protection');
+        return;
       }
-
-    } catch (error) {
-      console.error('❌ Error updating staking data:', error);
-    }
-  }
-
-  // Alternative approach using direct ethers.js-like structure
-  async getStakingSnapshot(): Promise<StakerInfo[]> {
-    try {
-      // Since we can't easily use ethers.js without installing it,
-      // we'll use a simpler approach with known staking addresses
-      // This should be replaced with proper contract calls in production
       
-      const knownStakers = [
-        // Add known staking addresses here as they're discovered
-        '0xa2a84fbf9134aca100999bfe83f13507269b5454', // Example staker
-        // More addresses will be added dynamically
-      ];
-
-      return knownStakers.map(address => ({
-        address: address.toLowerCase(),
-        tokenCount: 1, // This would come from contract
-        tokenIds: ['1'], // This would come from contract
-        stakeDurations: ['86400'] // This would come from contract (1 day in seconds)
-      }));
-
-    } catch (error) {
-      console.error('Error getting staking snapshot:', error);
-      return [];
+      // Spesifik RPC URL kullan
+      const RPC_URL = "https://convincing-billowing-forest.monad-testnet.quiknode.pro/7baeb1195f9311a73ade67aef1ca56fc6d3011d5";
+      const provider = new ethers.providers.JsonRpcProvider(RPC_URL);
+      const contract = new ethers.Contract(config.STAKING_CONTRACT_ADDRESS, this.ABI, provider);
+      
+      // Kontrattan snapshot al
+      const result = await contract.getStakersSnapshot();
+      const stakers = result[0]; // address array
+      const tokenIds = result[1]; // token arrays
+      
+      // Eski listeyi temizle
+      this.stakingAddresses.clear();
+      
+      // Sadece token stake etmiş olanları ekle  
+      for (let i = 0; i < stakers.length; i++) {
+        const staker = stakers[i];
+        const tokens = tokenIds[i] || [];
+        if (tokens.length > 0) {
+          this.stakingAddresses.add(staker.toLowerCase());
+        }
+      }
+      
+      this.lastUpdate = new Date();
+      console.log(`Found ${this.stakingAddresses.size} staking wallets`);
+      
+    } catch (error: any) {
+      console.error('❌ Error fetching staking snapshot:', error.message);
+      
+      if (error.message.includes("execution reverted")) {
+        console.log("⚠️ Possible reasons:");
+        console.log("- Gas limit exceeded");
+        console.log("- Contract internal error"); 
+        console.log("- Array size too large");
+      }
     }
   }
 
-  // Check if an address is currently staking
-  async isStaking(address: string): Promise<boolean> {
-    const normalizedAddress = address.toLowerCase();
+  // Basit kontrol - staking yapıyorsa koruma altında
+  isStaking(address: string): boolean {
+    const isProtected = this.stakingAddresses.has(address.toLowerCase());
     
-    // Update cache if it's stale (older than 10 minutes)
-    if (Date.now() - this.lastUpdate > this.updateInterval) {
-      await this.updateStakingData();
-    }
-
-    const isStaking = this.stakingAddresses.has(normalizedAddress);
-    
-    if (isStaking) {
-      console.log(`🥩 Address ${normalizedAddress} is currently staking - protecting roles`);
+    if (isProtected) {
+      console.log(` Wallet ${address} is protected (staking)`);
     }
     
-    return isStaking;
+    return isProtected;
   }
 
-  // Get all staking addresses (for bulk operations)
+  // Staking adreslerini dön
   async getStakingAddresses(): Promise<string[]> {
-    // Update cache if needed
-    if (Date.now() - this.lastUpdate > this.updateInterval) {
-      await this.updateStakingData();
-    }
-
     return Array.from(this.stakingAddresses);
   }
 
-  // Add a known staking address manually (for admin use)
-  addStakingAddress(address: string): void {
-    const normalizedAddress = address.toLowerCase();
-    this.stakingAddresses.add(normalizedAddress);
-    console.log(`➕ Manually added staking address: ${normalizedAddress}`);
-  }
-
-  // Remove a staking address manually (for admin use)
-  removeStakingAddress(address: string): void {
-    const normalizedAddress = address.toLowerCase();
-    this.stakingAddresses.delete(normalizedAddress);
-    console.log(`➖ Manually removed staking address: ${normalizedAddress}`);
-  }
-
-  // Get staking statistics
-  getStakingStats(): { totalStakers: number; lastUpdate: Date } {
+  getStats() {
     return {
       totalStakers: this.stakingAddresses.size,
-      lastUpdate: new Date(this.lastUpdate)
+      lastUpdate: this.lastUpdate
     };
   }
 }
 
-// Export singleton instance
 export const stakingService = new StakingService();
