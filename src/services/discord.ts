@@ -2,7 +2,6 @@ import { Client, GuildMember, Role } from 'discord.js';
 import { config } from '@/config/config';
 import { db } from './database';
 import { nftService } from './nft';
-import { stakingService } from './staking';
 
 export class DiscordService {
   private client: Client;
@@ -68,17 +67,10 @@ export class DiscordService {
 
     // Get eligible tier roles for all verified wallets
     const allEligibleTierRoles = new Set<string>();
-    let hasStakingWallet = false;
     
-    for (const wallet of wallets.filter((w: any) => w.isVerified)) {
+    for (const wallet of wallets.filter(w => w.isVerified)) {
       const tierRoles = await nftService.getEligibleTierRoles(wallet.address);
       tierRoles.forEach(roleId => allEligibleTierRoles.add(roleId));
-      
-      // Check if this wallet is staking
-      const isStaking = await stakingService.isStaking(wallet.address);
-      if (isStaking) {
-        hasStakingWallet = true;
-      }
     }
 
     // Get all tier role IDs to manage
@@ -96,16 +88,11 @@ export class DiscordService {
       const shouldHaveRole = hasVerifiedWallet && allEligibleTierRoles.has(roleId);
 
       if (shouldHaveRole && !hasRole) {
-        console.log(`🎭 Added ${role.name} role to ${member.displayName}`);
+        console.log(`🎭 Added ${role.name} role`);
         await member.roles.add(role);
       } else if (!shouldHaveRole && hasRole) {
-        // Check if user has any staking wallet before removing role
-        if (hasStakingWallet) {
-          console.log(`🥩 Protecting ${role.name} role for ${member.displayName} - has staking wallet`);
-        } else {
-          console.log(`🗑️ Removed ${role.name} role from ${member.displayName}`);
-          await member.roles.remove(role);
-        }
+        console.log(`🗑️ Removed ${role.name} role`);
+        await member.roles.remove(role);
       }
     }
   }

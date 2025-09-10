@@ -5,7 +5,6 @@ const discord_js_1 = require("discord.js");
 const config_1 = require("./config/config");
 const database_1 = require("./services/database");
 const nft_1 = require("./services/nft");
-const staking_1 = require("./services/staking");
 const discord_1 = require("./services/discord");
 const client = new discord_js_1.Client({
     intents: [
@@ -798,122 +797,6 @@ client.on('messageCreate', async (message) => {
             console.error('Error in admin verify command:', error);
             await message.reply({
                 content: `❌ An error occurred during admin verification.`,
-                allowedMentions: { repliedUser: false }
-            });
-        }
-    }
-    const stakingAddPattern = /^!staking add\s+(0x[a-fA-F0-9]{40})\s+(\w+)$/;
-    const stakingRemovePattern = /^!staking remove\s+(0x[a-fA-F0-9]{40})\s+(\w+)$/;
-    const stakingListPattern = /^!staking list\s+(\w+)$/;
-    const stakingStatsPattern = /^!staking stats\s+(\w+)$/;
-    const stakingAddMatch = message.content.match(stakingAddPattern);
-    const stakingRemoveMatch = message.content.match(stakingRemovePattern);
-    const stakingListMatch = message.content.match(stakingListPattern);
-    const stakingStatsMatch = message.content.match(stakingStatsPattern);
-    if (stakingAddMatch) {
-        const [, address, adminKey] = stakingAddMatch;
-        if (adminKey !== config_1.config.ADMIN_KEY) {
-            await message.reply({
-                content: `❌ Invalid admin key.`,
-                allowedMentions: { repliedUser: false }
-            });
-            return;
-        }
-        try {
-            staking_1.stakingService.addStakingAddress(address);
-            await message.reply({
-                content: `✅ Added \`${address}\` to staking list. Roles will be protected.`,
-                allowedMentions: { repliedUser: false }
-            });
-        }
-        catch (error) {
-            console.error('Error adding staking address:', error);
-            await message.reply({
-                content: `❌ An error occurred while adding staking address.`,
-                allowedMentions: { repliedUser: false }
-            });
-        }
-    }
-    if (stakingRemoveMatch) {
-        const [, address, adminKey] = stakingRemoveMatch;
-        if (adminKey !== config_1.config.ADMIN_KEY) {
-            await message.reply({
-                content: `❌ Invalid admin key.`,
-                allowedMentions: { repliedUser: false }
-            });
-            return;
-        }
-        try {
-            staking_1.stakingService.removeStakingAddress(address);
-            await message.reply({
-                content: `✅ Removed \`${address}\` from staking list.`,
-                allowedMentions: { repliedUser: false }
-            });
-        }
-        catch (error) {
-            console.error('Error removing staking address:', error);
-            await message.reply({
-                content: `❌ An error occurred while removing staking address.`,
-                allowedMentions: { repliedUser: false }
-            });
-        }
-    }
-    if (stakingListMatch) {
-        const [, adminKey] = stakingListMatch;
-        if (adminKey !== config_1.config.ADMIN_KEY) {
-            await message.reply({
-                content: `❌ Invalid admin key.`,
-                allowedMentions: { repliedUser: false }
-            });
-            return;
-        }
-        try {
-            const stakingAddresses = await staking_1.stakingService.getStakingAddresses();
-            if (stakingAddresses.length === 0) {
-                await message.reply({
-                    content: `📋 No staking addresses found.`,
-                    allowedMentions: { repliedUser: false }
-                });
-            }
-            else {
-                const addressList = stakingAddresses.map((addr, index) => `${index + 1}. \`${addr}\``).join('\n');
-                await message.reply({
-                    content: `📋 **Staking Addresses (${stakingAddresses.length} total):**\n${addressList}`,
-                    allowedMentions: { repliedUser: false }
-                });
-            }
-        }
-        catch (error) {
-            console.error('Error listing staking addresses:', error);
-            await message.reply({
-                content: `❌ An error occurred while listing staking addresses.`,
-                allowedMentions: { repliedUser: false }
-            });
-        }
-    }
-    if (stakingStatsMatch) {
-        const [, adminKey] = stakingStatsMatch;
-        if (adminKey !== config_1.config.ADMIN_KEY) {
-            await message.reply({
-                content: `❌ Invalid admin key.`,
-                allowedMentions: { repliedUser: false }
-            });
-            return;
-        }
-        try {
-            const stats = staking_1.stakingService.getStakingStats();
-            await message.reply({
-                content: `📊 **Staking Statistics:**\n` +
-                    `• Total Stakers: ${stats.totalStakers}\n` +
-                    `• Last Update: ${stats.lastUpdate.toLocaleString()}\n` +
-                    `• Protection: ${stats.totalStakers > 0 ? '🛡️ Active' : '❌ No protected wallets'}`,
-                allowedMentions: { repliedUser: false }
-            });
-        }
-        catch (error) {
-            console.error('Error getting staking stats:', error);
-            await message.reply({
-                content: `❌ An error occurred while getting staking statistics.`,
                 allowedMentions: { repliedUser: false }
             });
         }
