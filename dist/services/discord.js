@@ -5,6 +5,7 @@ exports.createDiscordService = createDiscordService;
 const config_1 = require("../config/config");
 const database_1 = require("./database");
 const nft_1 = require("./nft");
+const staking_1 = require("./staking");
 class DiscordService {
     constructor(client) {
         this.client = client;
@@ -60,9 +61,14 @@ class DiscordService {
             await member.roles.add(verifiedRole);
         }
         const allEligibleTierRoles = new Set();
-        for (const wallet of wallets.filter(w => w.isVerified)) {
+        let hasStakingWallet = false;
+        for (const wallet of wallets.filter((w) => w.isVerified)) {
             const tierRoles = await nft_1.nftService.getEligibleTierRoles(wallet.address);
             tierRoles.forEach(roleId => allEligibleTierRoles.add(roleId));
+            const isStaking = await staking_1.stakingService.isStaking(wallet.address);
+            if (isStaking) {
+                hasStakingWallet = true;
+            }
         }
         const allTierRoleIds = nft_1.nftService.getAllTierRoleIds();
         for (const roleId of allTierRoleIds) {
@@ -74,12 +80,17 @@ class DiscordService {
             const hasRole = member.roles.cache.has(roleId);
             const shouldHaveRole = hasVerifiedWallet && allEligibleTierRoles.has(roleId);
             if (shouldHaveRole && !hasRole) {
-                console.log(`🎭 Added ${role.name} role`);
+                console.log(`🎭 Added ${role.name} role to ${member.displayName}`);
                 await member.roles.add(role);
             }
             else if (!shouldHaveRole && hasRole) {
-                console.log(`🗑️ Removed ${role.name} role`);
-                await member.roles.remove(role);
+                if (hasStakingWallet) {
+                    console.log(`🥩 Protecting ${role.name} role for ${member.displayName} - has staking wallet`);
+                }
+                else {
+                    console.log(`🗑️ Removed ${role.name} role from ${member.displayName}`);
+                    await member.roles.remove(role);
+                }
             }
         }
     }
