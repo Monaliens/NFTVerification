@@ -148,12 +148,9 @@ class NFTService {
     }
     async getEligibleTierRoles(address) {
         const tokenCount = await this.getTokenCount(address);
-        for (const tier of config_1.NFT_TIERS) {
-            if (tokenCount >= tier.minTokens) {
-                return [tier.roleId];
-            }
-        }
-        return [];
+        const eligibleRoles = config_1.NFT_TIERS.filter(tier => tokenCount >= tier.minTokens)
+            .map(tier => tier.roleId);
+        return eligibleRoles;
     }
     getAllTierRoleIds() {
         return config_1.NFT_TIERS.map(tier => tier.roleId);
