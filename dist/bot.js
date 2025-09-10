@@ -249,29 +249,18 @@ client.on('interactionCreate', async (interaction) => {
                     }
                     catch (error) {
                         console.error('Error showing wallet modal:', error);
-                        if (!buttonInteraction.replied && !buttonInteraction.deferred) {
-                            try {
-                                await buttonInteraction.reply({
-                                    content: '❌ An error occurred while opening the wallet form.',
-                                    ephemeral: true
-                                });
-                            }
-                            catch (replyError) {
-                                console.error('Failed to send error response:', replyError.code);
-                            }
-                        }
+                        ongoingInteractions.delete(interactionId);
                     }
                     break;
                 }
                 case 'update_holdings': {
-                    if (!buttonInteraction.deferred && !buttonInteraction.replied) {
-                        try {
-                            await buttonInteraction.deferReply({ ephemeral: true });
-                        }
-                        catch (error) {
-                            console.error('Failed to defer reply for update_holdings:', error.code);
-                            break;
-                        }
+                    try {
+                        await buttonInteraction.deferReply({ ephemeral: true });
+                    }
+                    catch (error) {
+                        console.error('Failed to defer update_holdings reply:', error.code);
+                        ongoingInteractions.delete(interactionId);
+                        return;
                     }
                     try {
                         await discordService.updateMemberRoles(buttonInteraction.user.id);
@@ -302,53 +291,30 @@ client.on('interactionCreate', async (interaction) => {
                             tierInfo = '🥉 **Bronze Tier** (1+ NFTs)';
                         else
                             tierInfo = '❌ **No NFT Tier** (0 NFTs)';
-                        let walletDetails = '';
                         if (walletInfos.length > 0) {
-                            walletDetails = '\n\n📋 **Wallet Breakdown:**\n';
-                            walletInfos.forEach((info, index) => {
-                                const shortAddr = `${info.address.slice(0, 6)}...${info.address.slice(-4)}`;
-                                walletDetails += `${index + 1}. \`${shortAddr}\`: ${info.nfts} NFT${info.nfts !== 1 ? 's' : ''}\n`;
-                            });
                         }
                         const embedColor = totalNFTs > 0 ? 0x00ff00 : 0xffaa00;
-                        const updateEmbed = new discord_js_1.EmbedBuilder()
+                        const embed = new discord_js_1.EmbedBuilder()
                             .setColor(embedColor)
                             .setTitle('🔄 Holdings Updated')
-                            .setDescription(`✅ Your roles have been updated based on your NFT holdings!\n\n` +
+                            .setDescription(`Your roles have been updated based on current NFT holdings.\n\n` +
                             `🎨 **Total NFTs:** ${totalNFTs}\n` +
                             `🎭 **Current Tier:** ${tierInfo}` +
-                            walletDetails)
-                            .addFields({ name: '👤 Discord User', value: `<@${buttonInteraction.user.id}>`, inline: true }, { name: '📊 Total NFTs', value: `${totalNFTs}`, inline: true }, { name: '🔗 Verified Wallets', value: `${verifiedWallets.length}`, inline: true })
+                            (walletInfos.length > 0 ? `\n\n**Verified Wallets:**\n${walletInfos.map((info, index) => `**${index + 1}.** \`${info.address.substring(0, 6)}...${info.address.substring(38)}\` - ${info.nfts} NFT${info.nfts !== 1 ? 's' : ''}`).join('\n')}` : ''))
+                            .addFields({ name: '📊 Total NFTs', value: `${totalNFTs}`, inline: true }, { name: 'Verified Wallets', value: `${verifiedWallets.length}`, inline: true })
                             .setTimestamp();
                         if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
                             await buttonInteraction.editReply({
-                                embeds: [updateEmbed]
+                                embeds: [embed]
                             });
-                            setTimeout(async () => {
-                                try {
-                                    if (buttonInteraction.isRepliable()) {
-                                        await buttonInteraction.deleteReply().catch(err => {
-                                            console.error('Failed to delete roles update message (likely expired):', err.code);
-                                        });
-                                    }
-                                }
-                                catch (error) {
-                                    console.error('Error deleting roles update message:', error);
-                                }
-                            }, 120000);
                         }
                     }
                     catch (error) {
-                        console.error('Error updating roles:', error);
+                        console.error('Error updating holdings:', error);
                         if (buttonInteraction.isRepliable() && !buttonInteraction.replied) {
-                            try {
-                                await buttonInteraction.editReply({
-                                    content: 'An error occurred while updating your roles. Please try again.'
-                                });
-                            }
-                            catch (editError) {
-                                console.error('Failed to send role update error message:', editError.code);
-                            }
+                            await buttonInteraction.editReply({
+                                content: 'An error occurred while updating your holdings.'
+                            });
                         }
                     }
                     break;
@@ -627,6 +593,7 @@ client.on('interactionCreate', async (interaction) => {
                     }
                     break;
             }
+            ongoingInteractions.delete(interactionId);
         }
         else if (interaction.isModalSubmit()) {
             if (interaction.replied || interaction.deferred) {
