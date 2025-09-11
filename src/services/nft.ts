@@ -96,21 +96,12 @@ export class NFTService {
   async getVerificationAmount(address: string): Promise<string> {
     const normalizedAddress = address.toLowerCase();
 
-    // First check database
-    let amount = await db.getVerificationAmount(normalizedAddress);
-
-    if (!amount) {
-      // Generate new amount and store in database
-      amount = this.generateVerificationAmount();
-      await db.setVerificationAmount(normalizedAddress, amount);
-      console.log(
-        `🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
-      );
-    } else {
-      console.log(
-        `📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
-      );
-    }
+    // ALWAYS generate fresh random amount (no caching to prevent old tx acceptance!)
+    const amount = this.generateVerificationAmount();
+    await db.setVerificationAmount(normalizedAddress, amount);
+    console.log(
+      `🎯 Generated FRESH verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+    );
 
     return amount;
   }
@@ -510,27 +501,40 @@ export class NFTService {
       });
     });
 
+    // Only check transactions from last 5 minutes (300 seconds)
+    const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;
+
     const validTransaction = transactions.some((tx) => {
       const isSelfTransfer = tx.from === tx.to && tx.from === normalizedAddress;
       const actualMON = (Number(tx.value) / 1e18).toFixed(5);
       const expectedMONFloat = parseFloat(expectedMON);
       const actualMONFloat = parseFloat(actualMON);
 
-      // Accept any amount >= expected amount (or 0.01 MON minimum)
-      const isCorrectAmount =
-        actualMONFloat >= expectedMONFloat || actualMONFloat >= 0.01;
+      // Check if transaction is recent (within last 5 minutes)
+      const txTimestamp = (tx as any).timestamp || 0; // BlockVision provides timestamp
+      const isRecent = txTimestamp >= fiveMinutesAgo;
+
+      // EXACT amount matching only (no fallback to 0.01 MON!)
+      const isExactAmount =
+        Math.abs(actualMONFloat - expectedMONFloat) < 0.000001; // Allow tiny floating point differences
       const isSuccessful = tx.status === 1;
 
       console.log(`Checking transaction:`, {
+        hash: tx.hash,
         isSelfTransfer,
         actualMON: actualMONFloat,
         expectedMON: expectedMONFloat,
-        isCorrectAmount,
+        isExactAmount,
+        isRecent: isRecent,
+        timestamp: txTimestamp,
+        fiveMinutesAgo: fiveMinutesAgo,
         isSuccessful,
-        willValidate: isSelfTransfer && isCorrectAmount && isSuccessful,
+        willValidate:
+          isSelfTransfer && isExactAmount && isSuccessful && isRecent,
       });
 
-      if (isSelfTransfer && isCorrectAmount && isSuccessful) {
+      if (isSelfTransfer && isExactAmount && isSuccessful && isRecent) {
+        console.log(`✅ VALID RECENT TRANSACTION FOUND: ${tx.hash}`);
         return true;
       }
       return false;

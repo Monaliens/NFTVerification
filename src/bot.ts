@@ -193,54 +193,10 @@ const sendVerificationInstructions = async (
       await db.verifyWallet(address);
       await discordService.updateMemberRoles(interaction.user.id);
 
-      // Check NFT holdings for detailed success message
-      const isHolder = await nftService.isHolder(address);
-      const tokenCount = await nftService.getTokenCount(address);
-
-      let nftStatusMessage = "";
-      let embedColor: number = 0x00ff00; // Default green
-
-      if (isHolder && tokenCount > 0) {
-        nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n✅ You own **${tokenCount}** Lil Monalien NFT${tokenCount > 1 ? "s" : ""}!\n`;
-
-        // Determine tier name
-        if (tokenCount >= 50)
-          nftStatusMessage += `👑 **VIP Tier:** 50+ NFT Holder`;
-        else if (tokenCount >= 10)
-          nftStatusMessage += `💎 **Diamond Tier:** 10+ NFT Holder`;
-        else if (tokenCount >= 5)
-          nftStatusMessage += `🥇 **Gold Tier:** 5+ NFT Holder`;
-        else if (tokenCount >= 3)
-          nftStatusMessage += `🥈 **Silver Tier:** 3+ NFT Holder`;
-        else nftStatusMessage += `🥉 **Bronze Tier:** 1+ NFT Holder`;
-      } else {
-        nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n❌ No Lil Monalien NFTs found in this wallet.\n💡 You can still access verified holder channels.`;
-        embedColor = 0xffaa00; // Orange for verified but no NFTs
-      }
-
       const successEmbed = new EmbedBuilder()
-        .setColor(embedColor)
-        .setTitle("🎉 Auto-Verification Complete!")
-        .setDescription(
-          `✅ Your wallet has been automatically verified!${nftStatusMessage}`,
-        )
-        .addFields(
-          {
-            name: "🔗 Verified Wallet",
-            value: `\`${address}\``,
-            inline: false,
-          },
-          {
-            name: "📊 Total NFTs",
-            value: `${tokenCount}`,
-            inline: true,
-          },
-          {
-            name: "🎭 Tier Status",
-            value: isHolder ? "NFT Holder" : "Verified (No NFTs)",
-            inline: true,
-          },
-        )
+        .setColor("#00ff00")
+        .setTitle("Verification Complete")
+        .setDescription("✅ Your wallet has been verified successfully!")
         .setTimestamp();
 
       // Update the original verification message with success
@@ -735,61 +691,11 @@ client.on("interactionCreate", async (interaction) => {
                   buttonInteraction.user.id,
                 );
 
-                // Check NFT holdings and prepare detailed message
-                const isHolder = await nftService.isHolder(address);
-                const tokenCount = await nftService.getTokenCount(address);
-                const eligibleRoles =
-                  await nftService.getEligibleTierRoles(address);
-
-                let nftStatusMessage = "";
-                let embedColor: number = 0x00ff00; // Default green
-
-                if (isHolder && tokenCount > 0) {
-                  nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n✅ You own **${tokenCount}** Lil Monalien NFT${tokenCount > 1 ? "s" : ""}!\n`;
-
-                  // Add role information
-                  if (eligibleRoles.length > 0) {
-                    nftStatusMessage += `🎭 **Roles Assigned:** Based on your holdings, you've received tier-based roles!\n`;
-
-                    // Determine tier name
-                    if (tokenCount >= 50)
-                      nftStatusMessage += `👑 **VIP Tier:** 50+ NFT Holder`;
-                    else if (tokenCount >= 10)
-                      nftStatusMessage += `💎 **Diamond Tier:** 10+ NFT Holder`;
-                    else if (tokenCount >= 5)
-                      nftStatusMessage += `🥇 **Gold Tier:** 5+ NFT Holder`;
-                    else if (tokenCount >= 3)
-                      nftStatusMessage += `🥈 **Silver Tier:** 3+ NFT Holder`;
-                    else
-                      nftStatusMessage += `🥉 **Bronze Tier:** 1+ NFT Holder`;
-                  }
-                } else {
-                  nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n❌ No Lil Monalien NFTs found in this wallet.\n💡 You can still access verified holder channels, but you won't receive tier-based roles until you acquire NFTs.`;
-                  embedColor = 0xffaa00; // Orange for verified but no NFTs
-                }
-
                 const successEmbed = new EmbedBuilder()
-                  .setColor(embedColor)
+                  .setColor("#00ff00")
                   .setTitle("Verification Complete")
                   .setDescription(
-                    `✅ Your wallet has been verified successfully!${nftStatusMessage}`,
-                  )
-                  .addFields(
-                    {
-                      name: "🔗 Verified Wallet",
-                      value: `\`${address}\``,
-                      inline: false,
-                    },
-                    {
-                      name: "📊 Total NFTs",
-                      value: `${tokenCount}`,
-                      inline: true,
-                    },
-                    {
-                      name: "🎭 Tier Status",
-                      value: isHolder ? "NFT Holder" : "Verified (No NFTs)",
-                      inline: true,
-                    },
+                    "✅ Your wallet has been verified successfully!",
                   )
                   .setTimestamp();
 
