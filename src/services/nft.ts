@@ -548,22 +548,6 @@ export class NFTService {
       const isExactAmount = difference <= 0.002; // ±0.002 MON tolerance
       const isSuccessful = tx.status === 1;
 
-      console.log(`Checking transaction:`, {
-        hash: tx.hash,
-        isSelfTransfer,
-        actualMON: actualMONFloat.toFixed(5),
-        expectedMON: expectedMONFloat.toFixed(5),
-        difference: difference.toFixed(6),
-        tolerance: "±0.002 MON",
-        isExactAmount,
-        isRecent: isRecent,
-        timestamp: txTimestamp,
-        fiveMinutesAgo: fiveMinutesAgo,
-        isSuccessful,
-        willValidate:
-          isSelfTransfer && isExactAmount && isSuccessful && isRecent,
-      });
-
       if (isSelfTransfer && isExactAmount && isSuccessful && isRecent) {
         console.log(`✅ VALID RECENT TRANSACTION FOUND: ${tx.hash}`);
         return true;
