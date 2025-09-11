@@ -20,8 +20,11 @@ RUN npx prisma generate
 # Copy source code
 COPY . .
 
+# Regenerate Prisma client with updated schema
+RUN npx prisma generate
+
 # Build TypeScript code
 RUN npm run build
 
 # Start the bot
-CMD ["npm", "start"] 
+CMD ["npm", "start"]
