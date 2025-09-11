@@ -320,28 +320,27 @@ class DatabaseService {
   async updateHolders(holders: HolderData[]): Promise<void> {
     try {
       // Use transaction to ensure atomic operation - NEVER delete all then recreate!
-      await this.prisma.$transaction(async (tx) => {
-        // Clear existing holders safely
-        await tx.holder.deleteMany({});
+      await this.prisma.$transaction(
+        async (tx) => {
+          // Clear existing holders safely
+          await tx.holder.deleteMany({});
 
-        // Batch upsert holders to avoid deadlock
-        if (holders.length > 0) {
-          for (const holder of holders) {
-            await tx.holder.upsert({
-              where: { address: holder.address.toLowerCase() },
-              update: {
-                tokenCount: holder.tokenCount,
-                tokens: holder.tokens,
-              },
-              create: {
+          // Fast batch insert instead of slow individual upserts
+          if (holders.length > 0) {
+            await tx.holder.createMany({
+              data: holders.map((holder) => ({
                 address: holder.address.toLowerCase(),
                 tokenCount: holder.tokenCount,
                 tokens: holder.tokens,
-              },
+              })),
+              skipDuplicates: true,
             });
           }
-        }
-      });
+        },
+        {
+          timeout: 30000, // 30 seconds timeout for large datasets
+        },
+      );
 
       console.log("Holders update completed successfully");
     } catch (error) {
