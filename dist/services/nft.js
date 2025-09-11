@@ -14,7 +14,6 @@ class NFTService {
         this.holdersUrl = `${config_1.config.BASE_URL}/api/nft/holders_v2`;
         this.nftContractAddress = config_1.config.NFT_CONTRACT_ADDRESS;
         this.isUpdatingHolders = false;
-        this.verificationAmounts = new Map();
         this.knownTransactions = new Map();
         this.updateHoldersCache();
         this.knownTransactions.set("0xa2a84fbf9134aca100999bfe83f13507269b5454", "0xa9998391d3eec2378a0a4d5228d74c09e3b818d5f0d1562693a955fa855c751f");
@@ -27,18 +26,23 @@ class NFTService {
         const amount = min + random;
         return amount.toString();
     }
-    getVerificationAmount(address) {
+    async getVerificationAmount(address) {
         const normalizedAddress = address.toLowerCase();
-        let amount = this.verificationAmounts.get(normalizedAddress);
+        let amount = await database_1.db.getVerificationAmount(normalizedAddress);
         if (!amount) {
             amount = this.generateVerificationAmount();
-            this.verificationAmounts.set(normalizedAddress, amount);
+            await database_1.db.setVerificationAmount(normalizedAddress, amount);
+            console.log(`🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
+        }
+        else {
+            console.log(`📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
         }
         return amount;
     }
-    clearVerificationAmount(address) {
+    async clearVerificationAmount(address) {
         const normalizedAddress = address.toLowerCase();
-        this.verificationAmounts.delete(normalizedAddress);
+        await database_1.db.clearVerificationAmount(normalizedAddress);
+        console.log(`🗑️ Cleared verification amount for ${normalizedAddress}`);
     }
     addKnownTransaction(address, txHash) {
         const normalizedAddress = address.toLowerCase();
@@ -225,7 +229,7 @@ class NFTService {
                     console.log(`   Confirmed: ${isConfirmed ? "✅" : "❌"} (Block: ${tx.blockNumber ? parseInt(tx.blockNumber, 16) : "Pending"})`);
                     if (isSelfTransfer && isValidAmount && isConfirmed) {
                         console.log(`🎉 INSTANT VERIFICATION SUCCESS for ${normalizedAddress}!`);
-                        this.clearVerificationAmount(normalizedAddress);
+                        await this.clearVerificationAmount(normalizedAddress);
                         return true;
                     }
                     else {
@@ -240,7 +244,7 @@ class NFTService {
                 console.log(`⚠️ Error checking known transaction: ${error.message}`);
             }
         }
-        const expectedAmount = this.getVerificationAmount(normalizedAddress);
+        const expectedAmount = await this.getVerificationAmount(normalizedAddress);
         const expectedMON = (Number(expectedAmount) / 1e18).toFixed(5);
         console.log(`💰 Expected amount: ${expectedMON} MON (${expectedAmount} wei)`);
         const transactions = await this.getRecentTransactions(normalizedAddress);
@@ -281,7 +285,7 @@ class NFTService {
             return false;
         });
         if (validTransaction) {
-            this.clearVerificationAmount(normalizedAddress);
+            await this.clearVerificationAmount(normalizedAddress);
             console.log(`✅ Payment verified for ${normalizedAddress}`);
         }
         else {
@@ -295,7 +299,7 @@ class NFTService {
             return false;
         }
         const normalizedAddress = address.toLowerCase();
-        this.clearVerificationAmount(normalizedAddress);
+        await this.clearVerificationAmount(normalizedAddress);
         console.log(`✅ Manual payment verification approved for ${normalizedAddress} by admin`);
         return true;
     }

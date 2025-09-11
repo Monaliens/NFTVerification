@@ -1,5 +1,4 @@
-import { PrismaClient } from '@prisma/client';
-
+import { PrismaClient } from "@prisma/client";
 
 interface HolderData {
   address: string;
@@ -25,9 +24,9 @@ class DatabaseService {
   private async connectWithRetry() {
     try {
       await this.prisma.$connect();
-      console.log('✅ Database connected successfully');
+      console.log("✅ Database connected successfully");
     } catch (error) {
-      console.error('❌ Database connection failed:', error);
+      console.error("❌ Database connection failed:", error);
       setTimeout(() => this.connectWithRetry(), 5000); // Retry after 5 seconds
     }
   }
@@ -36,27 +35,27 @@ class DatabaseService {
   async createUser(discordId: string) {
     return this.prisma.user.create({
       data: { discordId },
-      include: { wallets: true }
+      include: { wallets: true },
     });
   }
 
   async getUser(discordId: string) {
     return this.prisma.user.findUnique({
       where: { discordId },
-      include: { wallets: true }
+      include: { wallets: true },
     });
   }
 
   async getAllUsers() {
     return this.prisma.user.findMany({
-      include: { wallets: true }
+      include: { wallets: true },
     });
   }
 
   // Get count of verified wallets
   async getVerifiedWalletCount(): Promise<number> {
     return this.prisma.wallet.count({
-      where: { isVerified: true }
+      where: { isVerified: true },
     });
   }
 
@@ -65,11 +64,11 @@ class DatabaseService {
     const users = await this.prisma.user.findMany({
       include: {
         wallets: {
-          where: { isVerified: true }
-        }
-      }
+          where: { isVerified: true },
+        },
+      },
     });
-    
+
     return users.filter((user: any) => user.wallets.length > 0).length;
   }
 
@@ -77,14 +76,17 @@ class DatabaseService {
   async getUsersWithNFTs(): Promise<{ userCount: number; totalNFTs: number }> {
     try {
       const holders = await this.prisma.holder.findMany();
-      const totalNFTs = holders.reduce((sum: number, holder: any) => sum + holder.tokenCount, 0);
-      
+      const totalNFTs = holders.reduce(
+        (sum: number, holder: any) => sum + holder.tokenCount,
+        0,
+      );
+
       return {
         userCount: holders.length,
-        totalNFTs: totalNFTs
+        totalNFTs: totalNFTs,
       };
     } catch (error) {
-      console.error('Error getting users with NFTs:', error);
+      console.error("Error getting users with NFTs:", error);
       return { userCount: 0, totalNFTs: 0 };
     }
   }
@@ -94,8 +96,10 @@ class DatabaseService {
     try {
       // Get all verified wallets that have NFTs
       const holders = await this.prisma.holder.findMany();
-      const walletAddressesWithNFTs = holders.map((h: any) => h.address.toLowerCase());
-      
+      const walletAddressesWithNFTs = holders.map((h: any) =>
+        h.address.toLowerCase(),
+      );
+
       // Get users who have verified wallets with NFTs
       const users = await this.prisma.user.findMany({
         include: {
@@ -103,17 +107,17 @@ class DatabaseService {
             where: {
               isVerified: true,
               address: {
-                in: walletAddressesWithNFTs
-              }
-            }
-          }
-        }
+                in: walletAddressesWithNFTs,
+              },
+            },
+          },
+        },
       });
-      
+
       // Return only users who have verified wallets with NFTs
       return users.filter((user: any) => user.wallets.length > 0);
     } catch (error) {
-      console.error('Error getting users with NFTs for role update:', error);
+      console.error("Error getting users with NFTs for role update:", error);
       return [];
     }
   }
@@ -122,15 +126,17 @@ class DatabaseService {
   async getAllVerifiedWallets() {
     return this.prisma.wallet.findMany({
       where: { isVerified: true },
-      include: { user: true }
+      include: { user: true },
     });
   }
 
   // Wallet Operations
-  async getWalletStatus(address: string): Promise<{ exists: boolean; isVerified: boolean; ownerId: string | null }> {
+  async getWalletStatus(
+    address: string,
+  ): Promise<{ exists: boolean; isVerified: boolean; ownerId: string | null }> {
     const wallet = await this.prisma.wallet.findUnique({
       where: { address: address.toLowerCase() },
-      include: { user: true }
+      include: { user: true },
     });
 
     if (!wallet) {
@@ -140,17 +146,21 @@ class DatabaseService {
     return {
       exists: true,
       isVerified: wallet.isVerified,
-      ownerId: wallet.user.discordId
+      ownerId: wallet.user.discordId,
     };
-  } 
+  }
 
   async forceDeleteWallet(address: string): Promise<void> {
     await this.prisma.wallet.deleteMany({
-      where: { address: address.toLowerCase() }
+      where: { address: address.toLowerCase() },
     });
   }
 
-  async addWallet(discordId: string, address: string): Promise<{ success: boolean; error?: string }> {
+  async addWallet(
+    discordId: string,
+    address: string,
+    verificationAmount?: string,
+  ): Promise<{ success: boolean; error?: string }> {
     const normalizedAddress = address.toLowerCase();
 
     try {
@@ -161,7 +171,7 @@ class DatabaseService {
       if (status.exists && status.isVerified && status.ownerId !== discordId) {
         return {
           success: false,
-          error: 'This wallet is already verified by another user.'
+          error: "This wallet is already verified by another user.",
         };
       }
 
@@ -173,12 +183,12 @@ class DatabaseService {
 
       // Ensure user exists
       let user = await this.prisma.user.findUnique({
-        where: { discordId }
+        where: { discordId },
       });
 
       if (!user) {
         user = await this.prisma.user.create({
-          data: { discordId }
+          data: { discordId },
         });
       }
 
@@ -187,43 +197,73 @@ class DatabaseService {
         data: {
           address: normalizedAddress,
           isVerified: false,
-          userId: user.id
-        }
+          userId: user.id,
+          verificationAmount: verificationAmount || null,
+        },
       });
 
       return { success: true };
     } catch (error) {
-      console.error('Error in addWallet:', error);
+      console.error("Error in addWallet:", error);
       return {
         success: false,
-        error: 'An error occurred while processing the wallet.'
+        error: "An error occurred while processing the wallet.",
       };
     }
   }
 
+  async getVerificationAmount(address: string): Promise<string | null> {
+    const normalizedAddress = address.toLowerCase();
+
+    const wallet = await this.prisma.wallet.findUnique({
+      where: { address: normalizedAddress },
+      select: { verificationAmount: true },
+    });
+
+    return wallet?.verificationAmount || null;
+  }
+
+  async setVerificationAmount(address: string, amount: string): Promise<void> {
+    const normalizedAddress = address.toLowerCase();
+
+    await this.prisma.wallet.updateMany({
+      where: { address: normalizedAddress },
+      data: { verificationAmount: amount },
+    });
+  }
+
+  async clearVerificationAmount(address: string): Promise<void> {
+    const normalizedAddress = address.toLowerCase();
+
+    await this.prisma.wallet.updateMany({
+      where: { address: normalizedAddress },
+      data: { verificationAmount: null },
+    });
+  }
+
   async verifyWallet(address: string): Promise<void> {
     const normalizedAddress = address.toLowerCase();
-    
+
     const wallet = await this.prisma.wallet.findUnique({
-      where: { address: normalizedAddress }
+      where: { address: normalizedAddress },
     });
 
     if (!wallet) {
-      throw new Error('Wallet not found');
+      throw new Error("Wallet not found");
     }
 
     await this.prisma.wallet.update({
       where: { address: normalizedAddress },
-      data: { isVerified: true }
+      data: { isVerified: true },
     });
   }
 
   async isWalletVerified(address: string): Promise<boolean> {
     const normalizedAddress = address.toLowerCase();
-    
+
     const wallet = await this.prisma.wallet.findUnique({
       where: { address: normalizedAddress },
-      select: { isVerified: true }
+      select: { isVerified: true },
     });
 
     return wallet?.isVerified || false;
@@ -236,7 +276,7 @@ class DatabaseService {
     }
 
     return this.prisma.wallet.findMany({
-      where: { userId: user.id }
+      where: { userId: user.id },
     });
   }
 
@@ -248,11 +288,8 @@ class DatabaseService {
 
     await this.prisma.wallet.deleteMany({
       where: {
-        AND: [
-          { address },
-          { userId: user.id }
-        ]
-      }
+        AND: [{ address }, { userId: user.id }],
+      },
     });
   }
 
@@ -264,11 +301,8 @@ class DatabaseService {
 
     const verifiedWallet = await this.prisma.wallet.findFirst({
       where: {
-        AND: [
-          { userId: user.id },
-          { isVerified: true }
-        ]
-      }
+        AND: [{ userId: user.id }, { isVerified: true }],
+      },
     });
 
     return !!verifiedWallet;
@@ -277,7 +311,7 @@ class DatabaseService {
   // Helper method to check if a wallet address is already registered
   async isWalletRegistered(address: string): Promise<boolean> {
     const wallet = await this.prisma.wallet.findUnique({
-      where: { address }
+      where: { address },
     });
     return !!wallet;
   }
@@ -287,43 +321,45 @@ class DatabaseService {
     try {
       // Delete all existing holders first
       await this.prisma.holder.deleteMany({});
-      
+
       // Add new holders with token counts and token IDs
       if (holders.length > 0) {
         await this.prisma.holder.createMany({
-          data: holders.map(holder => ({
+          data: holders.map((holder) => ({
             address: holder.address.toLowerCase(),
             tokenCount: holder.tokenCount,
-            tokens: holder.tokens
-          }))
+            tokens: holder.tokens,
+          })),
         });
       }
 
-      console.log('Holders update completed successfully');
+      console.log("Holders update completed successfully");
     } catch (error) {
-      console.error('Error updating holders:', error);
+      console.error("Error updating holders:", error);
       throw error;
     }
   }
 
   async isHolder(address: string): Promise<boolean> {
     const holder = await this.prisma.holder.findUnique({
-      where: { address: address.toLowerCase() }
+      where: { address: address.toLowerCase() },
     });
     return !!holder;
   }
 
   async getTokenCount(address: string): Promise<number> {
     const holder = await this.prisma.holder.findUnique({
-      where: { address: address.toLowerCase() }
+      where: { address: address.toLowerCase() },
     });
     return holder?.tokenCount || 0;
   }
 
-  async getWallets(discordId: string): Promise<{ address: string; isVerified: boolean; tokenCount: number }[]> {
+  async getWallets(
+    discordId: string,
+  ): Promise<{ address: string; isVerified: boolean; tokenCount: number }[]> {
     const user = await this.prisma.user.findUnique({
       where: { discordId },
-      include: { wallets: true }
+      include: { wallets: true },
     });
 
     if (!user) {
@@ -336,34 +372,38 @@ class DatabaseService {
         return {
           address: wallet.address,
           isVerified: wallet.isVerified,
-          tokenCount
+          tokenCount,
         };
-      })
+      }),
     );
 
     return wallets;
   }
 
   // Collection-specific holder operations
-  async updateCollectionHolders(collectionHolders: CollectionHolderData[]): Promise<void> {
+  async updateCollectionHolders(
+    collectionHolders: CollectionHolderData[],
+  ): Promise<void> {
     try {
       // Delete all existing collection holdings
       await this.prisma.collectionHolding.deleteMany({});
-      
+
       // Group holdings by address to manage holder relationships
-      const holderAddresses = [...new Set(collectionHolders.map(h => h.address))];
-      
+      const holderAddresses = [
+        ...new Set(collectionHolders.map((h) => h.address)),
+      ];
+
       // Ensure all holder records exist
       for (const address of holderAddresses) {
         await this.prisma.holder.upsert({
           where: { address },
-          create: { 
-            address, 
-            tokenCount: 0, 
+          create: {
+            address,
+            tokenCount: 0,
             tokens: [],
-            lastUpdated: new Date()
+            lastUpdated: new Date(),
           },
-          update: { lastUpdated: new Date() }
+          update: { lastUpdated: new Date() },
         });
       }
 
@@ -371,7 +411,7 @@ class DatabaseService {
       if (collectionHolders.length > 0) {
         for (const holding of collectionHolders) {
           const holder = await this.prisma.holder.findUnique({
-            where: { address: holding.address }
+            where: { address: holding.address },
           });
 
           if (holder) {
@@ -382,56 +422,66 @@ class DatabaseService {
                 tokenCount: holding.tokenCount,
                 tokens: holding.tokens,
                 holderId: holder.id,
-                lastUpdated: new Date()
-              }
+                lastUpdated: new Date(),
+              },
             });
           }
         }
       }
 
-      console.log('Collection holders update completed successfully');
+      console.log("Collection holders update completed successfully");
     } catch (error) {
-      console.error('Error updating collection holders:', error);
+      console.error("Error updating collection holders:", error);
       throw error;
     }
   }
 
-  async getCollectionHoldings(address: string): Promise<{ contractAddress: string; tokenCount: number; tokens: string[] }[]> {
+  async getCollectionHoldings(
+    address: string,
+  ): Promise<
+    { contractAddress: string; tokenCount: number; tokens: string[] }[]
+  > {
     const holdings = await this.prisma.collectionHolding.findMany({
-      where: { address: address.toLowerCase() }
+      where: { address: address.toLowerCase() },
     });
 
     return holdings.map((holding: any) => ({
       contractAddress: holding.contractAddress,
       tokenCount: holding.tokenCount,
-      tokens: holding.tokens
+      tokens: holding.tokens,
     }));
   }
 
-  async isHolderForCollection(address: string, contractAddress: string): Promise<boolean> {
+  async isHolderForCollection(
+    address: string,
+    contractAddress: string,
+  ): Promise<boolean> {
     const holding = await this.prisma.collectionHolding.findUnique({
-      where: { 
+      where: {
         address_contractAddress: {
           address: address.toLowerCase(),
-          contractAddress: contractAddress.toLowerCase()
-        }
-      }
+          contractAddress: contractAddress.toLowerCase(),
+        },
+      },
     });
     return !!holding;
   }
 
-  async getTokenCountForCollection(address: string, contractAddress: string): Promise<number> {
+  async getTokenCountForCollection(
+    address: string,
+    contractAddress: string,
+  ): Promise<number> {
     const holding = await this.prisma.collectionHolding.findUnique({
-      where: { 
+      where: {
         address_contractAddress: {
           address: address.toLowerCase(),
-          contractAddress: contractAddress.toLowerCase()
-        }
-      }
+          contractAddress: contractAddress.toLowerCase(),
+        },
+      },
     });
     return holding?.tokenCount || 0;
   }
 }
 
 // Export a singleton instance
-export const db = new DatabaseService(); 
+export const db = new DatabaseService();

@@ -145,7 +145,7 @@ const sendVerificationInstructions = async (
   interaction: ModalSubmitInteraction,
   address: string,
 ) => {
-  const verificationAmount = nftService.getVerificationAmount(address);
+  const verificationAmount = await nftService.getVerificationAmount(address);
   const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
 
   const embed = new EmbedBuilder()
@@ -781,7 +781,7 @@ client.on("interactionCreate", async (interaction) => {
               } else {
                 // Payment not received - show status with NFT check
                 const verificationAmount =
-                  nftService.getVerificationAmount(address);
+                  await nftService.getVerificationAmount(address);
                 const amountInMON = (Number(verificationAmount) / 1e18).toFixed(
                   5,
                 );

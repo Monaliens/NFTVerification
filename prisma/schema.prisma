@@ -22,13 +22,14 @@ model User {
 }
 
 model Wallet {
-  id          String    @id @default(auto()) @map("_id") @db.ObjectId
-  address     String    @unique
-  isVerified  Boolean   @default(false)
-  userId      String    @db.ObjectId
-  user        User      @relation(fields: [userId], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id                 String    @id @default(auto()) @map("_id") @db.ObjectId
+  address            String    @unique
+  isVerified         Boolean   @default(false)
+  verificationAmount String?   // Store verification amount to persist across restarts
+  userId             String    @db.ObjectId
+  user               User      @relation(fields: [userId], references: [id])
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 }
 
 model Holder {
@@ -37,7 +38,7 @@ model Holder {
   tokenCount  Int       @default(0)
   tokens      String[]  @default([])
   lastUpdated DateTime  @default(now())
-  
+
   // Collection-specific holdings
   collectionHoldings CollectionHolding[]
 }
@@ -49,10 +50,10 @@ model CollectionHolding {
   tokenCount      Int       @default(0)
   tokens          String[]  @default([])
   lastUpdated     DateTime  @default(now())
-  
+
   // Relations
   holder          Holder    @relation(fields: [holderId], references: [id])
   holderId        String    @db.ObjectId
-  
+
   @@unique([address, contractAddress])
 }
