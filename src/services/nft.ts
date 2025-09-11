@@ -242,9 +242,12 @@ export class NFTService {
     try {
       this.isUpdatingHolders = true;
 
-      // Step 1: Fetch holders from API
+      // Step 1: Fetch holders from API with 2 minute timeout
       const response = await axios.get<HolderResponse>(
         `${this.holdersUrl}/${this.nftContractAddress}`,
+        {
+          timeout: 120000, // 2 minutes timeout
+        },
       );
       if (!response.data.success) {
         throw new Error("Failed to fetch holders");
