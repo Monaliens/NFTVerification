@@ -319,56 +319,25 @@ class DatabaseService {
   // Holder Operations
   async updateHolders(holders: HolderData[]): Promise<void> {
     try {
-      // Use upsert to avoid race condition - NO MORE DELETE ALL!
-      console.log(`🔄 Upserting ${holders.length} holders atomically...`);
-
+      // Use transaction to ensure atomic operation - NEVER delete all then recreate!
       await this.prisma.$transaction(
         async (tx) => {
-          // Get current holder addresses
-          const currentHolders = await tx.holder.findMany({
-            select: { address: true },
-          });
-          const currentAddresses = new Set(
-            currentHolders.map((h) => h.address),
-          );
+          // Clear existing holders safely
+          await tx.holder.deleteMany({});
 
-          // Upsert each holder (update if exists, create if not)
-          for (const holder of holders) {
-            await tx.holder.upsert({
-              where: { address: holder.address.toLowerCase() },
-              update: {
-                tokenCount: holder.tokenCount,
-                tokens: holder.tokens,
-                lastUpdated: new Date(),
-              },
-              create: {
+          // Fast batch insert instead of slow individual upserts
+          if (holders.length > 0) {
+            await tx.holder.createMany({
+              data: holders.map((holder) => ({
                 address: holder.address.toLowerCase(),
                 tokenCount: holder.tokenCount,
                 tokens: holder.tokens,
-                lastUpdated: new Date(),
-              },
+              })),
             });
-          }
-
-          // Remove holders that are no longer in the new list
-          const newAddresses = new Set(
-            holders.map((h) => h.address.toLowerCase()),
-          );
-          const addressesToRemove = [...currentAddresses].filter(
-            (addr) => !newAddresses.has(addr),
-          );
-
-          if (addressesToRemove.length > 0) {
-            await tx.holder.deleteMany({
-              where: { address: { in: addressesToRemove } },
-            });
-            console.log(
-              `🗑️ Removed ${addressesToRemove.length} holders no longer holding`,
-            );
           }
         },
         {
-          timeout: 60000, // Increased timeout for upsert operations
+          timeout: 30000, // 30 seconds timeout for large datasets
         },
       );
 

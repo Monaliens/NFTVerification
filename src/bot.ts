@@ -317,12 +317,12 @@ client.on("ready", async () => {
       `⏱️ Automatic NFT role updates scheduled every ${NFT_CHECK_INTERVAL / 1000 / 60} minutes`,
     );
 
-    // Legacy role update disabled - conflicts with new NFT-specific system
-    // console.log("🔄 Running legacy role update...");
-    // const legacyResult = await discordService.updateAllUsersRoles();
-    // console.log(
-    //   `📊 Legacy update: ${legacyResult.updatedUsers}/${legacyResult.totalUsers} users processed`,
-    // );
+    // Do initial role update (legacy code for compatibility)
+    console.log("🔄 Running legacy role update...");
+    const legacyResult = await discordService.updateAllUsersRoles();
+    console.log(
+      `📊 Legacy update: ${legacyResult.updatedUsers}/${legacyResult.totalUsers} users processed`,
+    );
   } catch (error) {
     console.error("Error setting up bot:", error);
     if (error instanceof Error) {
