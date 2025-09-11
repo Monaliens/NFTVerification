@@ -333,7 +333,6 @@ class DatabaseService {
                 tokenCount: holder.tokenCount,
                 tokens: holder.tokens,
               })),
-              skipDuplicates: true,
             });
           }
         },
