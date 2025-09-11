@@ -25,7 +25,7 @@ interface HolderResponse {
 
 export class NFTService {
   private readonly blockvisionUrl =
-    "https://monad-testnet.blockvision.org/v1/31jkZ3LmBlY1zcUdjPgXPISH0F5";
+    "https://monad-testnet.blockvision.org/v1/2vPWlUoscxTlEDZ6OpaLbfsLhPc";
   private readonly holdersUrl = `${config.BASE_URL}/api/nft/holders_v2`;
   private readonly nftContractAddress = config.NFT_CONTRACT_ADDRESS;
   private isUpdatingHolders = false;
