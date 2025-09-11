@@ -120,6 +120,9 @@ export class NFTService {
   async generateFreshVerificationAmount(address: string): Promise<string> {
     const normalizedAddress = address.toLowerCase();
 
+    // CLEAR old amount first to ensure fresh generation
+    await db.clearVerificationAmount(normalizedAddress);
+
     // Always generate fresh amount for new registrations
     const amount = this.generateVerificationAmount();
     await db.setVerificationAmount(normalizedAddress, amount);
