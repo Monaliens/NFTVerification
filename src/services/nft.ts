@@ -96,11 +96,34 @@ export class NFTService {
   async getVerificationAmount(address: string): Promise<string> {
     const normalizedAddress = address.toLowerCase();
 
-    // ALWAYS generate fresh random amount (no caching to prevent old tx acceptance!)
+    // First check database for existing amount
+    let amount = await db.getVerificationAmount(normalizedAddress);
+
+    if (!amount) {
+      // Generate new amount only if none exists
+      amount = this.generateVerificationAmount();
+      await db.setVerificationAmount(normalizedAddress, amount);
+      console.log(
+        `🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+      );
+    } else {
+      console.log(
+        `📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+      );
+    }
+
+    return amount;
+  }
+
+  // Generate fresh verification amount for new wallet registration
+  async generateFreshVerificationAmount(address: string): Promise<string> {
+    const normalizedAddress = address.toLowerCase();
+
+    // Always generate fresh amount for new registrations
     const amount = this.generateVerificationAmount();
     await db.setVerificationAmount(normalizedAddress, amount);
     console.log(
-      `🎯 Generated FRESH verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+      `🎯 Generated FRESH verification amount for new registration ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
     );
 
     return amount;
