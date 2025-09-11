@@ -9,6 +9,7 @@ interface Transaction {
   to: string;
   value: string;
   status: number;
+  timestamp: number;
 }
 
 interface BlockVisionTransaction {
@@ -96,21 +97,12 @@ export class NFTService {
   async getVerificationAmount(address: string): Promise<string> {
     const normalizedAddress = address.toLowerCase();
 
-    // First check database for existing amount
-    let amount = await db.getVerificationAmount(normalizedAddress);
+    // ALWAYS generate fresh amount - NO DATABASE CACHING!
+    const amount = this.generateVerificationAmount();
 
-    if (!amount) {
-      // Generate new amount only if none exists
-      amount = this.generateVerificationAmount();
-      await db.setVerificationAmount(normalizedAddress, amount);
-      console.log(
-        `🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
-      );
-    } else {
-      console.log(
-        `📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
-      );
-    }
+    console.log(
+      `🎯 Generated FRESH verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+    );
 
     return amount;
   }
@@ -392,6 +384,7 @@ export class NFTService {
           to: tx.to.toLowerCase(),
           value: tx.value, // Already in wei format
           status: tx.status,
+          timestamp: tx.timestamp,
         });
       }
 
@@ -534,7 +527,7 @@ export class NFTService {
       const actualMONFloat = parseFloat(actualMON);
 
       // Check if transaction is recent (within last 5 minutes)
-      const txTimestamp = (tx as any).timestamp || 0; // BlockVision provides timestamp
+      const txTimestamp = tx.timestamp;
       const isRecent = txTimestamp >= fiveMinutesAgo;
 
       // EXACT amount matching only (no fallback to 0.01 MON!)

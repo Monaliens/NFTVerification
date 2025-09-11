@@ -30,15 +30,15 @@ class NFTService {
     }
     async getVerificationAmount(address) {
         const normalizedAddress = address.toLowerCase();
-        let amount = await database_1.db.getVerificationAmount(normalizedAddress);
-        if (!amount) {
-            amount = this.generateVerificationAmount();
-            await database_1.db.setVerificationAmount(normalizedAddress, amount);
-            console.log(`🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
-        }
-        else {
-            console.log(`📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
-        }
+        const amount = this.generateVerificationAmount();
+        console.log(`🎯 Generated FRESH verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
+        return amount;
+    }
+    async generateFreshVerificationAmount(address) {
+        const normalizedAddress = address.toLowerCase();
+        const amount = this.generateVerificationAmount();
+        await database_1.db.setVerificationAmount(normalizedAddress, amount);
+        console.log(`🎯 Generated FRESH verification amount for new registration ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
         return amount;
     }
     async clearVerificationAmount(address) {
@@ -212,6 +212,7 @@ class NFTService {
                     to: tx.to.toLowerCase(),
                     value: tx.value,
                     status: tx.status,
+                    timestamp: tx.timestamp,
                 });
             }
             console.log(`✅ Self-transfers found: ${transactions.length}`);
@@ -297,22 +298,30 @@ class NFTService {
                 isSelfTransfer: tx.from === tx.to && tx.from === normalizedAddress,
             });
         });
+        const fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;
         const validTransaction = transactions.some((tx) => {
             const isSelfTransfer = tx.from === tx.to && tx.from === normalizedAddress;
             const actualMON = (Number(tx.value) / 1e18).toFixed(5);
             const expectedMONFloat = parseFloat(expectedMON);
             const actualMONFloat = parseFloat(actualMON);
-            const isCorrectAmount = actualMONFloat >= expectedMONFloat || actualMONFloat >= 0.01;
+            const txTimestamp = tx.timestamp;
+            const isRecent = txTimestamp >= fiveMinutesAgo;
+            const isExactAmount = Math.abs(actualMONFloat - expectedMONFloat) < 0.000001;
             const isSuccessful = tx.status === 1;
             console.log(`Checking transaction:`, {
+                hash: tx.hash,
                 isSelfTransfer,
                 actualMON: actualMONFloat,
                 expectedMON: expectedMONFloat,
-                isCorrectAmount,
+                isExactAmount,
+                isRecent: isRecent,
+                timestamp: txTimestamp,
+                fiveMinutesAgo: fiveMinutesAgo,
                 isSuccessful,
-                willValidate: isSelfTransfer && isCorrectAmount && isSuccessful,
+                willValidate: isSelfTransfer && isExactAmount && isSuccessful && isRecent,
             });
-            if (isSelfTransfer && isCorrectAmount && isSuccessful) {
+            if (isSelfTransfer && isExactAmount && isSuccessful && isRecent) {
+                console.log(`✅ VALID RECENT TRANSACTION FOUND: ${tx.hash}`);
                 return true;
             }
             return false;
