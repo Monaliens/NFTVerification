@@ -186,27 +186,65 @@ const sendVerificationInstructions = async (
   // No longer deleting this verification message to keep it persistent
   // Verification instructions should remain visible to users
 
-  // Set up automatic check after 1 minute
-  setTimeout(async () => {
+  // Start continuous payment monitoring (60s duration, 2s intervals)
+  nftService.startPaymentMonitoring(address, async () => {
     try {
-      // First check if the wallet is already verified
-      const isVerified = await db.hasVerifiedWallet(interaction.user.id);
-      if (isVerified) {
-        console.log("Wallet already verified, skipping automatic check");
-        return;
+      // Verify the wallet and update roles
+      await db.verifyWallet(address);
+      await discordService.updateMemberRoles(interaction.user.id);
+
+      // Check NFT holdings for detailed success message
+      const isHolder = await nftService.isHolder(address);
+      const tokenCount = await nftService.getTokenCount(address);
+
+      let nftStatusMessage = "";
+      let embedColor: number = 0x00ff00; // Default green
+
+      if (isHolder && tokenCount > 0) {
+        nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n✅ You own **${tokenCount}** Lil Monalien NFT${tokenCount > 1 ? "s" : ""}!\n`;
+
+        // Determine tier name
+        if (tokenCount >= 50)
+          nftStatusMessage += `👑 **VIP Tier:** 50+ NFT Holder`;
+        else if (tokenCount >= 10)
+          nftStatusMessage += `💎 **Diamond Tier:** 10+ NFT Holder`;
+        else if (tokenCount >= 5)
+          nftStatusMessage += `🥇 **Gold Tier:** 5+ NFT Holder`;
+        else if (tokenCount >= 3)
+          nftStatusMessage += `🥈 **Silver Tier:** 3+ NFT Holder`;
+        else nftStatusMessage += `🥉 **Bronze Tier:** 1+ NFT Holder`;
+      } else {
+        nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n❌ No Lil Monalien NFTs found in this wallet.\n💡 You can still access verified holder channels.`;
+        embedColor = 0xffaa00; // Orange for verified but no NFTs
       }
 
-      const hasReceived = await nftService.hasReceivedPayment(address);
-      if (hasReceived) {
-        await db.verifyWallet(address);
-        await discordService.updateMemberRoles(interaction.user.id);
+      const successEmbed = new EmbedBuilder()
+        .setColor(embedColor)
+        .setTitle("🎉 Auto-Verification Complete!")
+        .setDescription(
+          `✅ Your wallet has been automatically verified!${nftStatusMessage}`,
+        )
+        .addFields(
+          {
+            name: "🔗 Verified Wallet",
+            value: `\`${address}\``,
+            inline: false,
+          },
+          {
+            name: "📊 Total NFTs",
+            value: `${tokenCount}`,
+            inline: true,
+          },
+          {
+            name: "🎭 Tier Status",
+            value: isHolder ? "NFT Holder" : "Verified (No NFTs)",
+            inline: true,
+          },
+        )
+        .setTimestamp();
 
-        const successEmbed = new EmbedBuilder()
-          .setColor("#00ff00")
-          .setTitle("Verification Complete")
-          .setDescription("✅ Your wallet has been verified successfully!")
-          .setTimestamp();
-
+      // Update the original verification message with success
+      if (interaction.isRepliable()) {
         await interaction.editReply({
           embeds: [successEmbed],
           components: [],
@@ -217,7 +255,9 @@ const sendVerificationInstructions = async (
         setTimeout(async () => {
           try {
             if (interaction.isRepliable()) {
-              await interaction.deleteReply();
+              await interaction.deleteReply().catch(() => {
+                // Ignore errors if message is already deleted
+              });
             }
           } catch (error) {
             console.error("Error deleting success message:", error);
@@ -225,9 +265,9 @@ const sendVerificationInstructions = async (
         }, 120000); // 2 minutes
       }
     } catch (error) {
-      console.error("Error in automatic payment check:", error);
+      console.error("Error in automatic payment verification:", error);
     }
-  }, 60000); // 1 minute
+  });
 };
 
 // Event handlers

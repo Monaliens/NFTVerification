@@ -11,6 +11,40 @@ interface Transaction {
   status: number;
 }
 
+interface BlockVisionTransaction {
+  hash: string;
+  blockNumber: number;
+  from: string;
+  to: string;
+  type: string;
+  value: string;
+  error: string;
+  timestamp: number;
+  traceIndex: number;
+  fromAddress: {
+    address: string;
+    type: string;
+    isContract: boolean;
+  };
+  toAddress: {
+    address: string;
+    type: string;
+    isContract: boolean;
+  };
+  status: number;
+}
+
+interface BlockVisionResponse {
+  code: number;
+  reason: string;
+  message: string;
+  result: {
+    data: BlockVisionTransaction[];
+    nextPageCursor: string;
+    total: number;
+  };
+}
+
 interface HolderResponse {
   success: boolean;
   data: {
@@ -24,12 +58,14 @@ interface HolderResponse {
 }
 
 export class NFTService {
-  private readonly blockvisionUrl =
-    "https://monad-testnet.blockvision.org/v1/2vPWlUoscxTlEDZ6OpaLbfsLhPc";
+  private readonly blockvisionV2Url =
+    "https://api.blockvision.org/v2/monad/account/internal/transactions";
+  private readonly blockvisionApiKey = "2vPWlUoscxTlEDZ6OpaLbfsLhPc";
   private readonly holdersUrl = `${config.BASE_URL}/api/nft/holders_v2`;
   private readonly nftContractAddress = config.NFT_CONTRACT_ADDRESS;
   private isUpdatingHolders = false;
   private knownTransactions: Map<string, string> = new Map(); // address -> txHash
+  private paymentMonitors: Map<string, NodeJS.Timeout> = new Map(); // address -> monitoring timeout
 
   constructor() {
     // Initialize holders cache on startup
@@ -84,6 +120,91 @@ export class NFTService {
     const normalizedAddress = address.toLowerCase();
     await db.clearVerificationAmount(normalizedAddress);
     console.log(`🗑️ Cleared verification amount for ${normalizedAddress}`);
+  }
+
+  // Start continuous payment monitoring (60s duration, 2s intervals)
+  startPaymentMonitoring(address: string, onPaymentFound: () => void): void {
+    const normalizedAddress = address.toLowerCase();
+
+    // Clear any existing monitor for this address
+    this.stopPaymentMonitoring(normalizedAddress);
+
+    console.log(
+      `🔄 Starting payment monitoring for ${normalizedAddress} (60s duration, 2s intervals)`,
+    );
+
+    let checksCount = 0;
+    const maxChecks = 30; // 60 seconds / 2 seconds = 30 checks
+
+    const checkPayment = async () => {
+      checksCount++;
+      console.log(
+        `🔍 Payment check ${checksCount}/${maxChecks} for ${normalizedAddress}`,
+      );
+
+      try {
+        const hasPayment = await this.hasReceivedPayment(normalizedAddress);
+        if (hasPayment) {
+          console.log(
+            `🎉 Payment found during monitoring for ${normalizedAddress}!`,
+          );
+          this.stopPaymentMonitoring(normalizedAddress);
+          onPaymentFound();
+          return;
+        }
+
+        if (checksCount >= maxChecks) {
+          console.log(
+            `⏰ Payment monitoring completed for ${normalizedAddress} (${checksCount} checks)`,
+          );
+          this.stopPaymentMonitoring(normalizedAddress);
+          return;
+        }
+
+        // Schedule next check in 2 seconds
+        const timeout = setTimeout(checkPayment, 2000);
+        this.paymentMonitors.set(normalizedAddress, timeout);
+      } catch (error) {
+        console.error(
+          `❌ Error during payment monitoring for ${normalizedAddress}:`,
+          error.message,
+        );
+        if (checksCount >= maxChecks) {
+          this.stopPaymentMonitoring(normalizedAddress);
+        } else {
+          // Continue monitoring despite error
+          const timeout = setTimeout(checkPayment, 2000);
+          this.paymentMonitors.set(normalizedAddress, timeout);
+        }
+      }
+    };
+
+    // Start first check immediately
+    checkPayment();
+  }
+
+  // Stop payment monitoring for an address
+  stopPaymentMonitoring(address: string): void {
+    const normalizedAddress = address.toLowerCase();
+    const existingTimeout = this.paymentMonitors.get(normalizedAddress);
+
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+      this.paymentMonitors.delete(normalizedAddress);
+      console.log(`⏹️ Stopped payment monitoring for ${normalizedAddress}`);
+    }
+  }
+
+  // Stop all payment monitoring (cleanup method)
+  stopAllPaymentMonitoring(): void {
+    console.log(
+      `🛑 Stopping all payment monitoring (${this.paymentMonitors.size} active monitors)`,
+    );
+    for (const [address, timeout] of this.paymentMonitors.entries()) {
+      clearTimeout(timeout);
+      console.log(`   ⏹️ Stopped monitoring for ${address}`);
+    }
+    this.paymentMonitors.clear();
   }
 
   // Add known transaction for instant verification
@@ -211,96 +332,69 @@ export class NFTService {
     try {
       const normalizedAddress = address.toLowerCase();
 
-      console.log(`🌐 Fetching transactions for: ${normalizedAddress}`);
-      console.log(`🔗 Using BlockVision API: ${this.blockvisionUrl}`);
+      console.log(
+        `🌐 Fetching transactions with BlockVision V2 API for: ${normalizedAddress}`,
+      );
 
-      // Use eth_getTransactionCount and eth_getBlockByNumber to get recent transactions
-      const latestBlockResponse = await axios.post(this.blockvisionUrl, {
-        jsonrpc: "2.0",
-        method: "eth_blockNumber",
-        params: [],
-        id: 1,
-      });
+      const response = await axios.get<BlockVisionResponse>(
+        this.blockvisionV2Url,
+        {
+          params: {
+            address: normalizedAddress,
+            filter: "all",
+            limit: 20,
+            ascendingOrder: false,
+          },
+          headers: {
+            accept: "application/json",
+            "x-api-key": this.blockvisionApiKey,
+          },
+        },
+      );
 
-      if (!latestBlockResponse.data.result) {
-        console.log("❌ Could not get latest block number");
+      if (response.data.code !== 0) {
+        console.log(`❌ API Error: ${response.data.reason}`);
         return [];
       }
 
-      const latestBlockHex = latestBlockResponse.data.result;
-      const latestBlock = parseInt(latestBlockHex, 16);
-      console.log(`📊 Latest block: ${latestBlock}`);
-
-      // Check last 10 blocks for transactions (optimized for rate limiting)
-      const blocksToCheck = 10;
-      const fromBlock = Math.max(0, latestBlock - blocksToCheck);
-
-      console.log(
-        `� Scanning blocks ${fromBlock} to ${latestBlock} for transactions...`,
-      );
-
       const transactions: Transaction[] = [];
 
-      // Get transactions from recent blocks with rate limiting
-      for (
-        let blockNum = latestBlock;
-        blockNum >= fromBlock && transactions.length < 10;
-        blockNum--
-      ) {
-        try {
-          // Add delay between requests to avoid rate limiting
-          if (blockNum !== latestBlock) {
-            await new Promise((resolve) => setTimeout(resolve, 500)); // 500ms delay for better rate limiting
-          }
-          const blockResponse = await axios.post(this.blockvisionUrl, {
-            jsonrpc: "2.0",
-            method: "eth_getBlockByNumber",
-            params: [`0x${blockNum.toString(16)}`, true],
-            id: 1,
-          });
+      // Filter for self-transfers with value > 0
+      const selfTransfers = response.data.result.data.filter(
+        (tx) =>
+          tx.from.toLowerCase() === normalizedAddress &&
+          tx.to.toLowerCase() === normalizedAddress &&
+          tx.value &&
+          tx.value !== "0" &&
+          tx.status === 1 && // Only successful transactions
+          !tx.error, // No errors
+      );
 
-          if (
-            blockResponse.data.result &&
-            blockResponse.data.result.transactions
-          ) {
-            const blockTransactions = blockResponse.data.result.transactions;
-
-            // Filter for transactions involving our address
-            const relevantTxs = blockTransactions.filter(
-              (tx: any) =>
-                tx.from?.toLowerCase() === normalizedAddress &&
-                tx.to?.toLowerCase() === normalizedAddress &&
-                tx.value &&
-                tx.value !== "0x0",
-            );
-
-            for (const tx of relevantTxs) {
-              transactions.push({
-                hash: tx.hash,
-                from: tx.from.toLowerCase(),
-                to: tx.to.toLowerCase(),
-                value: parseInt(tx.value, 16).toString(),
-                status: 1, // Assume successful if in block
-              });
-            }
-          }
-        } catch (blockError) {
-          console.log(
-            `⚠️ Error checking block ${blockNum}:`,
-            blockError.message,
-          );
-          // If we get a rate limit error, wait longer
-          if (blockError.response?.status === 429) {
-            console.log("⏳ Rate limited, waiting 2 seconds...");
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          }
-        }
+      // Convert to our Transaction format
+      for (const tx of selfTransfers) {
+        transactions.push({
+          hash: tx.hash,
+          from: tx.from.toLowerCase(),
+          to: tx.to.toLowerCase(),
+          value: tx.value, // Already in wei format
+          status: tx.status,
+        });
       }
 
-      console.log(`� Self-transfers found: ${transactions.length}`);
+      console.log(`✅ Self-transfers found: ${transactions.length}`);
+
+      // Log transaction details for debugging
+      transactions.forEach((tx, index) => {
+        const amountInMON = (Number(tx.value) / 1e18).toFixed(6);
+        console.log(`   ${index + 1}. ${tx.hash} - ${amountInMON} MON`);
+      });
+
       return transactions;
     } catch (error) {
-      console.error("❌ Error fetching transactions:", error.message);
+      console.error(
+        "❌ Error fetching transactions with V2 API:",
+        error?.response?.data || error.message,
+      );
       return [];
     }
   }
@@ -339,37 +433,36 @@ export class NFTService {
       console.log(`🚀 INSTANT: Checking known transaction ${knownTxHash}`);
 
       try {
-        // Single API call for instant verification
-        const txResponse = await axios.post(this.blockvisionUrl, {
-          jsonrpc: "2.0",
-          method: "eth_getTransactionByHash",
-          params: [knownTxHash],
-          id: 1,
-        });
+        // For instant verification, we'll just check if the known transaction amount matches
+        // Since we're now using V2 API, we can check recent transactions for this specific hash
+        const recentTransactions =
+          await this.getRecentTransactions(normalizedAddress);
+        const knownTx = recentTransactions.find(
+          (tx) => tx.hash.toLowerCase() === knownTxHash.toLowerCase(),
+        );
 
-        if (txResponse.data.result) {
-          const tx = txResponse.data.result;
-          const valueInWei = parseInt(tx.value || "0", 16);
+        if (knownTx) {
+          const valueInWei = Number(knownTx.value);
           const valueInMON = valueInWei / 1e18;
 
-          console.log(`✅ Transaction found: ${valueInMON.toFixed(6)} MON`);
+          console.log(
+            `✅ Known transaction found: ${valueInMON.toFixed(6)} MON`,
+          );
 
           // Instant verification checks
           const isSelfTransfer =
-            tx.from?.toLowerCase() === normalizedAddress &&
-            tx.to?.toLowerCase() === normalizedAddress;
+            knownTx.from === normalizedAddress &&
+            knownTx.to === normalizedAddress;
           const isValidAmount = valueInMON >= 0.01;
-          const isConfirmed = tx.blockNumber !== null;
+          const isSuccessful = knownTx.status === 1;
 
           console.log(`   Self-transfer: ${isSelfTransfer ? "✅" : "❌"}`);
           console.log(
             `   Valid amount: ${isValidAmount ? "✅" : "❌"} (${valueInMON.toFixed(6)} >= 0.01)`,
           );
-          console.log(
-            `   Confirmed: ${isConfirmed ? "✅" : "❌"} (Block: ${tx.blockNumber ? parseInt(tx.blockNumber, 16) : "Pending"})`,
-          );
+          console.log(`   Successful: ${isSuccessful ? "✅" : "❌"}`);
 
-          if (isSelfTransfer && isValidAmount && isConfirmed) {
+          if (isSelfTransfer && isValidAmount && isSuccessful) {
             console.log(
               `🎉 INSTANT VERIFICATION SUCCESS for ${normalizedAddress}!`,
             );
@@ -381,7 +474,7 @@ export class NFTService {
             );
           }
         } else {
-          console.log(`⚠️ Known transaction not found in blockchain`);
+          console.log(`⚠️ Known transaction not found in recent transactions`);
         }
       } catch (error) {
         console.log(`⚠️ Error checking known transaction: ${error.message}`);

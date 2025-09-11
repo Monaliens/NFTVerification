@@ -117,22 +117,50 @@ const sendVerificationInstructions = async (interaction, address) => {
         components: [row],
         ephemeral: true,
     });
-    setTimeout(async () => {
+    nft_1.nftService.startPaymentMonitoring(address, async () => {
         try {
-            const isVerified = await database_1.db.hasVerifiedWallet(interaction.user.id);
-            if (isVerified) {
-                console.log("Wallet already verified, skipping automatic check");
-                return;
+            await database_1.db.verifyWallet(address);
+            await discordService.updateMemberRoles(interaction.user.id);
+            const isHolder = await nft_1.nftService.isHolder(address);
+            const tokenCount = await nft_1.nftService.getTokenCount(address);
+            let nftStatusMessage = "";
+            let embedColor = 0x00ff00;
+            if (isHolder && tokenCount > 0) {
+                nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n✅ You own **${tokenCount}** Lil Monalien NFT${tokenCount > 1 ? "s" : ""}!\n`;
+                if (tokenCount >= 50)
+                    nftStatusMessage += `👑 **VIP Tier:** 50+ NFT Holder`;
+                else if (tokenCount >= 10)
+                    nftStatusMessage += `💎 **Diamond Tier:** 10+ NFT Holder`;
+                else if (tokenCount >= 5)
+                    nftStatusMessage += `🥇 **Gold Tier:** 5+ NFT Holder`;
+                else if (tokenCount >= 3)
+                    nftStatusMessage += `🥈 **Silver Tier:** 3+ NFT Holder`;
+                else
+                    nftStatusMessage += `🥉 **Bronze Tier:** 1+ NFT Holder`;
             }
-            const hasReceived = await nft_1.nftService.hasReceivedPayment(address);
-            if (hasReceived) {
-                await database_1.db.verifyWallet(address);
-                await discordService.updateMemberRoles(interaction.user.id);
-                const successEmbed = new discord_js_1.EmbedBuilder()
-                    .setColor("#00ff00")
-                    .setTitle("Verification Complete")
-                    .setDescription("✅ Your wallet has been verified successfully!")
-                    .setTimestamp();
+            else {
+                nftStatusMessage = `\n\n🎨 **NFT Holdings:**\n❌ No Lil Monalien NFTs found in this wallet.\n💡 You can still access verified holder channels.`;
+                embedColor = 0xffaa00;
+            }
+            const successEmbed = new discord_js_1.EmbedBuilder()
+                .setColor(embedColor)
+                .setTitle("🎉 Auto-Verification Complete!")
+                .setDescription(`✅ Your wallet has been automatically verified!${nftStatusMessage}`)
+                .addFields({
+                name: "🔗 Verified Wallet",
+                value: `\`${address}\``,
+                inline: false,
+            }, {
+                name: "📊 Total NFTs",
+                value: `${tokenCount}`,
+                inline: true,
+            }, {
+                name: "🎭 Tier Status",
+                value: isHolder ? "NFT Holder" : "Verified (No NFTs)",
+                inline: true,
+            })
+                .setTimestamp();
+            if (interaction.isRepliable()) {
                 await interaction.editReply({
                     embeds: [successEmbed],
                     components: [],
@@ -141,7 +169,8 @@ const sendVerificationInstructions = async (interaction, address) => {
                 setTimeout(async () => {
                     try {
                         if (interaction.isRepliable()) {
-                            await interaction.deleteReply();
+                            await interaction.deleteReply().catch(() => {
+                            });
                         }
                     }
                     catch (error) {
@@ -151,9 +180,9 @@ const sendVerificationInstructions = async (interaction, address) => {
             }
         }
         catch (error) {
-            console.error("Error in automatic payment check:", error);
+            console.error("Error in automatic payment verification:", error);
         }
-    }, 60000);
+    });
 };
 client.on("ready", async () => {
     console.log(`🚀 ${client.user?.tag} is online!`);
