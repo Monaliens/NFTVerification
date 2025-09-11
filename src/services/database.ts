@@ -319,27 +319,84 @@ class DatabaseService {
   // Holder Operations
   async updateHolders(holders: HolderData[]): Promise<void> {
     try {
-      // Use transaction to ensure atomic operation - NEVER delete all then recreate!
-      await this.prisma.$transaction(
-        async (tx) => {
-          // Clear existing holders safely
-          await tx.holder.deleteMany({});
+      console.log(`🔄 Smart updating ${holders.length} holders...`);
 
-          // Fast batch insert instead of slow individual upserts
-          if (holders.length > 0) {
-            await tx.holder.createMany({
-              data: holders.map((holder) => ({
-                address: holder.address.toLowerCase(),
+      // Get current holders from DB
+      const currentHolders = await this.prisma.holder.findMany();
+      const currentMap = new Map(currentHolders.map((h) => [h.address, h]));
+
+      // Prepare arrays for different operations
+      const toCreate: any[] = [];
+      const toUpdate: any[] = [];
+      const currentAddresses = new Set(currentHolders.map((h) => h.address));
+      const newAddresses = new Set(holders.map((h) => h.address.toLowerCase()));
+
+      // Compare and categorize changes
+      for (const holder of holders) {
+        const address = holder.address.toLowerCase();
+        const existing = currentMap.get(address);
+
+        if (!existing) {
+          // New holder
+          toCreate.push({
+            address,
+            tokenCount: holder.tokenCount,
+            tokens: holder.tokens,
+            lastUpdated: new Date(),
+          });
+        } else if (
+          existing.tokenCount !== holder.tokenCount ||
+          JSON.stringify(existing.tokens.sort()) !==
+            JSON.stringify(holder.tokens.sort())
+        ) {
+          // Changed holder
+          toUpdate.push({
+            address,
+            tokenCount: holder.tokenCount,
+            tokens: holder.tokens,
+          });
+        }
+      }
+
+      // Find holders to remove
+      const toRemove = [...currentAddresses].filter(
+        (addr) => !newAddresses.has(addr),
+      );
+
+      console.log(
+        `📊 Changes: +${toCreate.length} new, ~${toUpdate.length} updated, -${toRemove.length} removed`,
+      );
+
+      // Execute updates in transaction only if there are changes
+      if (toCreate.length > 0 || toUpdate.length > 0 || toRemove.length > 0) {
+        await this.prisma.$transaction(async (tx) => {
+          // Batch create new holders
+          if (toCreate.length > 0) {
+            await tx.holder.createMany({ data: toCreate });
+          }
+
+          // Batch update changed holders
+          for (const holder of toUpdate) {
+            await tx.holder.update({
+              where: { address: holder.address },
+              data: {
                 tokenCount: holder.tokenCount,
                 tokens: holder.tokens,
-              })),
+                lastUpdated: new Date(),
+              },
             });
           }
-        },
-        {
-          timeout: 30000, // 30 seconds timeout for large datasets
-        },
-      );
+
+          // Batch remove old holders
+          if (toRemove.length > 0) {
+            await tx.holder.deleteMany({
+              where: { address: { in: toRemove } },
+            });
+          }
+        });
+      } else {
+        console.log("✅ No changes detected, skipping database update");
+      }
 
       console.log("Holders update completed successfully");
     } catch (error) {
