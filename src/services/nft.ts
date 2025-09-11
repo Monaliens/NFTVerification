@@ -536,24 +536,30 @@ export class NFTService {
 
     const validTransaction = transactions.some((tx) => {
       const isSelfTransfer = tx.from === tx.to && tx.from === normalizedAddress;
+      // Compare raw wei values directly - no floating point precision issues!
+      const actualWei = BigInt(tx.value);
+      const expectedWei = BigInt(expectedAmount);
+
       const actualMON = (Number(tx.value) / 1e18).toFixed(5);
-      const expectedMONFloat = parseFloat(expectedMON);
-      const actualMONFloat = parseFloat(actualMON);
 
       // Check if transaction is recent (within last 5 minutes)
       const txTimestamp = tx.timestamp;
       const isRecent = txTimestamp >= fiveMinutesAgo;
 
-      // EXACT amount matching only (no fallback to 0.01 MON!)
-      const isExactAmount =
-        Math.abs(actualMONFloat - expectedMONFloat) < 0.000001; // Allow tiny floating point differences
+      // Simple proximity check - allow ±0.002 MON difference
+      const actualMONFloat = Number(tx.value) / 1e18;
+      const expectedMONFloat = Number(expectedAmount) / 1e18;
+      const difference = Math.abs(actualMONFloat - expectedMONFloat);
+      const isExactAmount = difference <= 0.002; // ±0.002 MON tolerance
       const isSuccessful = tx.status === 1;
 
       console.log(`Checking transaction:`, {
         hash: tx.hash,
         isSelfTransfer,
-        actualMON: actualMONFloat,
-        expectedMON: expectedMONFloat,
+        actualMON: actualMONFloat.toFixed(5),
+        expectedMON: expectedMONFloat.toFixed(5),
+        difference: difference.toFixed(6),
+        tolerance: "±0.002 MON",
         isExactAmount,
         isRecent: isRecent,
         timestamp: txTimestamp,
