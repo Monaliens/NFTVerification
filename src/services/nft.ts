@@ -129,7 +129,11 @@ export class NFTService {
       await db.updateHolders(mergedHolders);
       return true;
     } catch (error) {
-      console.error("Error updating holders cache:", error);
+      console.error("❌ Error updating holders cache:", error);
+      console.error("❌ Error details:", {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return false;
     } finally {
       this.isUpdatingHolders = false;
