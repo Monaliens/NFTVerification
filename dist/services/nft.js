@@ -7,20 +7,21 @@ exports.nftService = exports.NFTService = void 0;
 const axios_1 = __importDefault(require("axios"));
 const config_1 = require("../config/config");
 const database_1 = require("./database");
+const staking_1 = require("./staking");
 class NFTService {
     constructor() {
-        this.blockvisionUrl = 'https://monad-testnet.blockvision.org/v1/31jkZ3LmBlY1zcUdjPgXPISH0F5';
+        this.blockvisionUrl = "https://monad-testnet.blockvision.org/v1/31jkZ3LmBlY1zcUdjPgXPISH0F5";
         this.holdersUrl = `${config_1.config.BASE_URL}/api/nft/holders_v2`;
         this.nftContractAddress = config_1.config.NFT_CONTRACT_ADDRESS;
         this.isUpdatingHolders = false;
         this.verificationAmounts = new Map();
         this.knownTransactions = new Map();
         this.updateHoldersCache();
-        this.knownTransactions.set('0xa2a84fbf9134aca100999bfe83f13507269b5454', '0xa9998391d3eec2378a0a4d5228d74c09e3b818d5f0d1562693a955fa855c751f');
+        this.knownTransactions.set("0xa2a84fbf9134aca100999bfe83f13507269b5454", "0xa9998391d3eec2378a0a4d5228d74c09e3b818d5f0d1562693a955fa855c751f");
     }
     generateVerificationAmount() {
-        const min = BigInt('10000000000000000');
-        const max = BigInt('20000000000000000');
+        const min = BigInt("10000000000000000");
+        const max = BigInt("20000000000000000");
         const range = max - min;
         const random = BigInt(Math.floor(Math.random() * Number(range)));
         const amount = min + random;
@@ -56,24 +57,61 @@ class NFTService {
             this.isUpdatingHolders = true;
             const response = await axios_1.default.get(`${this.holdersUrl}/${this.nftContractAddress}`);
             if (!response.data.success) {
-                throw new Error('Failed to fetch holders');
+                throw new Error("Failed to fetch holders");
             }
-            const holders = response.data.data.holders.map(holder => ({
+            const apiHolders = response.data.data.holders.map((holder) => ({
                 address: holder.address.toLowerCase(),
                 tokenCount: holder.tokenCount,
-                tokens: holder.tokens
+                tokens: holder.tokens,
             }));
-            console.log(`✅ Updated ${holders.length} NFT holders`);
-            await database_1.db.updateHolders(holders);
+            console.log(`📊 API holders: ${apiHolders.length}`);
+            await staking_1.stakingService.updateSnapshot();
+            const stakingData = await this.getStakingTokenData();
+            console.log(`🥩 Staking data collected for ${Object.keys(stakingData).length} addresses`);
+            const mergedHolders = this.mergeHoldersWithStaking(apiHolders, stakingData);
+            console.log(`✅ Total merged holders: ${mergedHolders.length}`);
+            await database_1.db.updateHolders(mergedHolders);
             return true;
         }
         catch (error) {
-            console.error('Error updating holders cache:', error);
+            console.error("Error updating holders cache:", error);
             return false;
         }
         finally {
             this.isUpdatingHolders = false;
         }
+    }
+    async getStakingTokenData() {
+        try {
+            const stakingData = await staking_1.stakingService.getStakingTokenData();
+            console.log(`🔍 Retrieved staking data for ${Object.keys(stakingData).length} addresses`);
+            return stakingData;
+        }
+        catch (error) {
+            console.error("Error getting staking token data:", error);
+            return {};
+        }
+    }
+    mergeHoldersWithStaking(apiHolders, stakingData) {
+        const holderMap = new Map();
+        for (const holder of apiHolders) {
+            holderMap.set(holder.address, { ...holder });
+        }
+        for (const [address, stakingInfo] of Object.entries(stakingData)) {
+            const existing = holderMap.get(address.toLowerCase());
+            if (existing) {
+                existing.tokenCount += stakingInfo.tokenCount;
+                existing.tokens = [...existing.tokens, ...stakingInfo.tokens];
+            }
+            else {
+                holderMap.set(address.toLowerCase(), {
+                    address: address.toLowerCase(),
+                    tokenCount: stakingInfo.tokenCount,
+                    tokens: stakingInfo.tokens,
+                });
+            }
+        }
+        return Array.from(holderMap.values());
     }
     async getRecentTransactions(address) {
         try {
@@ -81,13 +119,13 @@ class NFTService {
             console.log(`🌐 Fetching transactions for: ${normalizedAddress}`);
             console.log(`🔗 Using BlockVision API: ${this.blockvisionUrl}`);
             const latestBlockResponse = await axios_1.default.post(this.blockvisionUrl, {
-                jsonrpc: '2.0',
-                method: 'eth_blockNumber',
+                jsonrpc: "2.0",
+                method: "eth_blockNumber",
                 params: [],
-                id: 1
+                id: 1,
             });
             if (!latestBlockResponse.data.result) {
-                console.log('❌ Could not get latest block number');
+                console.log("❌ Could not get latest block number");
                 return [];
             }
             const latestBlockHex = latestBlockResponse.data.result;
@@ -100,26 +138,28 @@ class NFTService {
             for (let blockNum = latestBlock; blockNum >= fromBlock && transactions.length < 10; blockNum--) {
                 try {
                     if (blockNum !== latestBlock) {
-                        await new Promise(resolve => setTimeout(resolve, 500));
+                        await new Promise((resolve) => setTimeout(resolve, 500));
                     }
                     const blockResponse = await axios_1.default.post(this.blockvisionUrl, {
-                        jsonrpc: '2.0',
-                        method: 'eth_getBlockByNumber',
+                        jsonrpc: "2.0",
+                        method: "eth_getBlockByNumber",
                         params: [`0x${blockNum.toString(16)}`, true],
-                        id: 1
+                        id: 1,
                     });
-                    if (blockResponse.data.result && blockResponse.data.result.transactions) {
+                    if (blockResponse.data.result &&
+                        blockResponse.data.result.transactions) {
                         const blockTransactions = blockResponse.data.result.transactions;
                         const relevantTxs = blockTransactions.filter((tx) => tx.from?.toLowerCase() === normalizedAddress &&
                             tx.to?.toLowerCase() === normalizedAddress &&
-                            tx.value && tx.value !== '0x0');
+                            tx.value &&
+                            tx.value !== "0x0");
                         for (const tx of relevantTxs) {
                             transactions.push({
                                 hash: tx.hash,
                                 from: tx.from.toLowerCase(),
                                 to: tx.to.toLowerCase(),
                                 value: parseInt(tx.value, 16).toString(),
-                                status: 1
+                                status: 1,
                             });
                         }
                     }
@@ -127,8 +167,8 @@ class NFTService {
                 catch (blockError) {
                     console.log(`⚠️ Error checking block ${blockNum}:`, blockError.message);
                     if (blockError.response?.status === 429) {
-                        console.log('⏳ Rate limited, waiting 2 seconds...');
-                        await new Promise(resolve => setTimeout(resolve, 2000));
+                        console.log("⏳ Rate limited, waiting 2 seconds...");
+                        await new Promise((resolve) => setTimeout(resolve, 2000));
                     }
                 }
             }
@@ -136,7 +176,7 @@ class NFTService {
             return transactions;
         }
         catch (error) {
-            console.error('❌ Error fetching transactions:', error.message);
+            console.error("❌ Error fetching transactions:", error.message);
             return [];
         }
     }
@@ -148,12 +188,11 @@ class NFTService {
     }
     async getEligibleTierRoles(address) {
         const tokenCount = await this.getTokenCount(address);
-        const eligibleRoles = config_1.NFT_TIERS.filter(tier => tokenCount >= tier.minTokens)
-            .map(tier => tier.roleId);
+        const eligibleRoles = config_1.NFT_TIERS.filter((tier) => tokenCount >= tier.minTokens).map((tier) => tier.roleId);
         return eligibleRoles;
     }
     getAllTierRoleIds() {
-        return config_1.NFT_TIERS.map(tier => tier.roleId);
+        return config_1.NFT_TIERS.map((tier) => tier.roleId);
     }
     async hasReceivedPayment(address) {
         const normalizedAddress = address.toLowerCase();
@@ -163,22 +202,23 @@ class NFTService {
             console.log(`🚀 INSTANT: Checking known transaction ${knownTxHash}`);
             try {
                 const txResponse = await axios_1.default.post(this.blockvisionUrl, {
-                    jsonrpc: '2.0',
-                    method: 'eth_getTransactionByHash',
+                    jsonrpc: "2.0",
+                    method: "eth_getTransactionByHash",
                     params: [knownTxHash],
-                    id: 1
+                    id: 1,
                 });
                 if (txResponse.data.result) {
                     const tx = txResponse.data.result;
-                    const valueInWei = parseInt(tx.value || '0', 16);
+                    const valueInWei = parseInt(tx.value || "0", 16);
                     const valueInMON = valueInWei / 1e18;
                     console.log(`✅ Transaction found: ${valueInMON.toFixed(6)} MON`);
-                    const isSelfTransfer = tx.from?.toLowerCase() === normalizedAddress && tx.to?.toLowerCase() === normalizedAddress;
+                    const isSelfTransfer = tx.from?.toLowerCase() === normalizedAddress &&
+                        tx.to?.toLowerCase() === normalizedAddress;
                     const isValidAmount = valueInMON >= 0.01;
                     const isConfirmed = tx.blockNumber !== null;
-                    console.log(`   Self-transfer: ${isSelfTransfer ? '✅' : '❌'}`);
-                    console.log(`   Valid amount: ${isValidAmount ? '✅' : '❌'} (${valueInMON.toFixed(6)} >= 0.01)`);
-                    console.log(`   Confirmed: ${isConfirmed ? '✅' : '❌'} (Block: ${tx.blockNumber ? parseInt(tx.blockNumber, 16) : 'Pending'})`);
+                    console.log(`   Self-transfer: ${isSelfTransfer ? "✅" : "❌"}`);
+                    console.log(`   Valid amount: ${isValidAmount ? "✅" : "❌"} (${valueInMON.toFixed(6)} >= 0.01)`);
+                    console.log(`   Confirmed: ${isConfirmed ? "✅" : "❌"} (Block: ${tx.blockNumber ? parseInt(tx.blockNumber, 16) : "Pending"})`);
                     if (isSelfTransfer && isValidAmount && isConfirmed) {
                         console.log(`🎉 INSTANT VERIFICATION SUCCESS for ${normalizedAddress}!`);
                         this.clearVerificationAmount(normalizedAddress);
@@ -213,10 +253,10 @@ class NFTService {
                 to: tx.to,
                 value: `${actualMON} MON`,
                 status: tx.status,
-                isSelfTransfer: tx.from === tx.to && tx.from === normalizedAddress
+                isSelfTransfer: tx.from === tx.to && tx.from === normalizedAddress,
             });
         });
-        const validTransaction = transactions.some(tx => {
+        const validTransaction = transactions.some((tx) => {
             const isSelfTransfer = tx.from === tx.to && tx.from === normalizedAddress;
             const actualMON = (Number(tx.value) / 1e18).toFixed(5);
             const expectedMONFloat = parseFloat(expectedMON);
@@ -229,7 +269,7 @@ class NFTService {
                 expectedMON: expectedMONFloat,
                 isCorrectAmount,
                 isSuccessful,
-                willValidate: isSelfTransfer && isCorrectAmount && isSuccessful
+                willValidate: isSelfTransfer && isCorrectAmount && isSuccessful,
             });
             if (isSelfTransfer && isCorrectAmount && isSuccessful) {
                 return true;

@@ -5,7 +5,7 @@ const ethers_1 = require("ethers");
 const config_1 = require("../config/config");
 class StakingService {
     constructor() {
-        this.stakingAddresses = new Set();
+        this.stakingData = new Map();
         this.lastUpdate = new Date();
         this.ABI = [
             {
@@ -32,22 +32,23 @@ class StakingService {
                 type: "function",
             },
         ];
-        if (config_1.config.STAKING_CONTRACT_ADDRESS && config_1.config.STAKING_CONTRACT_ADDRESS !== 'undefined') {
-            console.log('🥩 Staking protection enabled');
+        if (config_1.config.STAKING_CONTRACT_ADDRESS &&
+            config_1.config.STAKING_CONTRACT_ADDRESS !== "undefined") {
+            console.log("🥩 Staking data enabled");
             this.updateSnapshot();
             setInterval(() => {
                 this.updateSnapshot();
             }, 10 * 60 * 1000);
         }
         else {
-            console.log('⚠️ Staking contract address not configured - staking protection disabled');
+            console.log("⚠️ STAKING_CONTRACT_ADDRESS not configured");
         }
     }
     async updateSnapshot() {
         try {
-            console.log('📸 Fetching staking snapshot...');
+            console.log("📸 Fetching staking snapshot...");
             if (!config_1.config.STAKING_CONTRACT_ADDRESS) {
-                console.log('⚠️ STAKING_CONTRACT_ADDRESS not configured, skipping staking protection');
+                console.log("⚠️ STAKING_CONTRACT_ADDRESS not configured, skipping");
                 return;
             }
             const RPC_URL = "https://convincing-billowing-forest.monad-testnet.quiknode.pro/7baeb1195f9311a73ade67aef1ca56fc6d3011d5";
@@ -56,19 +57,22 @@ class StakingService {
             const result = await contract.getStakersSnapshot();
             const stakers = result[0];
             const tokenIds = result[1];
-            this.stakingAddresses.clear();
+            this.stakingData.clear();
             for (let i = 0; i < stakers.length; i++) {
                 const staker = stakers[i];
                 const tokens = tokenIds[i] || [];
                 if (tokens.length > 0) {
-                    this.stakingAddresses.add(staker.toLowerCase());
+                    this.stakingData.set(staker.toLowerCase(), {
+                        tokenCount: tokens.length,
+                        tokens: tokens.map((t) => t.toString()),
+                    });
                 }
             }
             this.lastUpdate = new Date();
-            console.log(`Found ${this.stakingAddresses.size} staking wallets`);
+            console.log(`Found ${this.stakingData.size} staking wallets`);
         }
         catch (error) {
-            console.error('❌ Error fetching staking snapshot:', error.message);
+            console.error("❌ Error fetching staking snapshot:", error.message);
             if (error.message.includes("execution reverted")) {
                 console.log("⚠️ Possible reasons:");
                 console.log("- Gas limit exceeded");
@@ -77,20 +81,19 @@ class StakingService {
             }
         }
     }
-    isStaking(address) {
-        const isProtected = this.stakingAddresses.has(address.toLowerCase());
-        if (isProtected) {
-            console.log(` Wallet ${address} is protected (staking)`);
+    async getStakingTokenData() {
+        const result = {};
+        for (const [address, data] of this.stakingData.entries()) {
+            result[address] = { ...data };
         }
-        return isProtected;
-    }
-    async getStakingAddresses() {
-        return Array.from(this.stakingAddresses);
+        return result;
     }
     getStats() {
+        const totalTokensStaked = Array.from(this.stakingData.values()).reduce((sum, data) => sum + data.tokenCount, 0);
         return {
-            totalStakers: this.stakingAddresses.size,
-            lastUpdate: this.lastUpdate
+            totalStakers: this.stakingData.size,
+            totalTokensStaked,
+            lastUpdate: this.lastUpdate,
         };
     }
 }

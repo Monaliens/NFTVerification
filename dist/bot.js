@@ -224,13 +224,18 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.isButton()) {
             const buttonInteraction = interaction;
             if (buttonInteraction.replied || buttonInteraction.deferred) {
-                console.log('Interaction already handled, skipping');
+                console.log('Interaction already handled by Discord, skipping');
                 ongoingInteractions.delete(interactionId);
                 return;
             }
             switch (buttonInteraction.customId) {
                 case 'add_wallet': {
                     try {
+                        if (buttonInteraction.replied || buttonInteraction.deferred) {
+                            console.log('Cannot show modal - interaction already handled');
+                            ongoingInteractions.delete(interactionId);
+                            return;
+                        }
                         const modal = new discord_js_1.ModalBuilder()
                             .setCustomId('wallet_input')
                             .setTitle('Link Your Wallet');
@@ -254,11 +259,19 @@ client.on('interactionCreate', async (interaction) => {
                     break;
                 }
                 case 'update_holdings': {
+                    if (buttonInteraction.replied || buttonInteraction.deferred) {
+                        console.log('Update holdings interaction already handled, skipping');
+                        ongoingInteractions.delete(interactionId);
+                        return;
+                    }
                     try {
                         await buttonInteraction.deferReply({ ephemeral: true });
                     }
                     catch (error) {
-                        console.error('Failed to defer update_holdings reply:', error.code);
+                        console.error('Failed to defer update_holdings reply:', error.message, error.code);
+                        if (error.code === 40060 || error.code === 10062) {
+                            console.log('Interaction already acknowledged or unknown, skipping');
+                        }
                         ongoingInteractions.delete(interactionId);
                         return;
                     }
@@ -320,7 +333,22 @@ client.on('interactionCreate', async (interaction) => {
                     break;
                 }
                 case 'list_wallets': {
-                    await buttonInteraction.deferReply({ ephemeral: true });
+                    if (buttonInteraction.replied || buttonInteraction.deferred) {
+                        console.log('List wallets interaction already handled, skipping');
+                        ongoingInteractions.delete(interactionId);
+                        return;
+                    }
+                    try {
+                        await buttonInteraction.deferReply({ ephemeral: true });
+                    }
+                    catch (error) {
+                        console.error('Failed to defer list_wallets reply:', error.message, error.code);
+                        if (error.code === 40060 || error.code === 10062) {
+                            console.log('Interaction already acknowledged or unknown, skipping');
+                        }
+                        ongoingInteractions.delete(interactionId);
+                        return;
+                    }
                     try {
                         const wallets = await database_1.db.getWallets(buttonInteraction.user.id);
                         const embed = await createWalletListEmbed(wallets);
@@ -357,22 +385,33 @@ client.on('interactionCreate', async (interaction) => {
                     break;
                 }
                 case 'select_wallet': {
-                    const wallets = await database_1.db.getUserWallets(buttonInteraction.user.id);
-                    const modal = new discord_js_1.ModalBuilder()
-                        .setCustomId('wallet_selection')
-                        .setTitle('Delete Wallet');
-                    const walletSelect = new discord_js_1.TextInputBuilder()
-                        .setCustomId('wallet_number')
-                        .setLabel('Enter wallet number to delete')
-                        .setStyle(discord_js_1.TextInputStyle.Short)
-                        .setMinLength(1)
-                        .setMaxLength(1)
-                        .setPlaceholder('Enter a number between 1 and ' + wallets.length)
-                        .setRequired(true);
-                    const firstActionRow = new discord_js_1.ActionRowBuilder()
-                        .addComponents(walletSelect);
-                    modal.addComponents(firstActionRow);
-                    await buttonInteraction.showModal(modal);
+                    if (buttonInteraction.replied || buttonInteraction.deferred) {
+                        console.log('Select wallet interaction already handled, skipping');
+                        ongoingInteractions.delete(interactionId);
+                        return;
+                    }
+                    try {
+                        const wallets = await database_1.db.getUserWallets(buttonInteraction.user.id);
+                        const modal = new discord_js_1.ModalBuilder()
+                            .setCustomId('wallet_selection')
+                            .setTitle('Delete Wallet');
+                        const walletSelect = new discord_js_1.TextInputBuilder()
+                            .setCustomId('wallet_number')
+                            .setLabel('Enter wallet number to delete')
+                            .setStyle(discord_js_1.TextInputStyle.Short)
+                            .setMinLength(1)
+                            .setMaxLength(1)
+                            .setPlaceholder('Enter a number between 1 and ' + wallets.length)
+                            .setRequired(true);
+                        const firstActionRow = new discord_js_1.ActionRowBuilder()
+                            .addComponents(walletSelect);
+                        modal.addComponents(firstActionRow);
+                        await buttonInteraction.showModal(modal);
+                    }
+                    catch (error) {
+                        console.error('Error showing wallet selection modal:', error);
+                        ongoingInteractions.delete(interactionId);
+                    }
                     break;
                 }
                 default:
@@ -597,7 +636,7 @@ client.on('interactionCreate', async (interaction) => {
         }
         else if (interaction.isModalSubmit()) {
             if (interaction.replied || interaction.deferred) {
-                console.log('Modal interaction already handled, skipping');
+                console.log('Modal interaction already handled by Discord, skipping');
                 ongoingInteractions.delete(interactionId);
                 return;
             }
@@ -606,7 +645,11 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.deferReply({ ephemeral: true });
                 }
                 catch (error) {
-                    console.error('Failed to defer modal reply:', error.code);
+                    console.error('Failed to defer modal reply:', error.message, error.code);
+                    if (error.code === 40060 || error.code === 10062) {
+                        console.log('Interaction already acknowledged or unknown, skipping');
+                    }
+                    ongoingInteractions.delete(interactionId);
                     return;
                 }
                 try {
@@ -668,7 +711,11 @@ client.on('interactionCreate', async (interaction) => {
                     await interaction.deferReply({ ephemeral: true });
                 }
                 catch (error) {
-                    console.error('Failed to defer wallet input reply:', error.code);
+                    console.error('Failed to defer wallet input reply:', error.message, error.code);
+                    if (error.code === 40060 || error.code === 10062) {
+                        console.log('Interaction already acknowledged or unknown, skipping');
+                    }
+                    ongoingInteractions.delete(interactionId);
                     return;
                 }
                 try {

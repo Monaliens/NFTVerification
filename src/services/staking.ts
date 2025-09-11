@@ -34,13 +34,13 @@ class StakingService {
   ];
 
   constructor() {
-    // Contract adresi varsa staking'i başlat
+    // Initialize staking data if contract address is configured
     if (
       config.STAKING_CONTRACT_ADDRESS &&
       config.STAKING_CONTRACT_ADDRESS !== "undefined"
     ) {
       console.log("🥩 Staking data enabled");
-      // Başlangıçta snapshot çek
+      // Get initial snapshot
       this.updateSnapshot();
 
       // Her 10 dakikada bir güncelle
@@ -91,7 +91,7 @@ class StakingService {
         if (tokens.length > 0) {
           this.stakingData.set(staker.toLowerCase(), {
             tokenCount: tokens.length,
-            tokens: tokens.map((t) => t.toString()),
+            tokens: tokens.map((t: any) => t.toString()),
           });
         }
       }
