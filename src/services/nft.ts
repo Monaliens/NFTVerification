@@ -68,6 +68,9 @@ export class NFTService {
   private knownTransactions: Map<string, string> = new Map(); // address -> txHash
   private paymentMonitors: Map<string, NodeJS.Timeout> = new Map(); // address -> monitoring timeout
 
+  // Memory cache for verification amounts - no DB cache needed!
+  private verificationAmounts = new Map<string, string>(); // address -> amount
+
   constructor() {
     // Initialize holders cache on startup
     this.updateHoldersCache();
@@ -80,63 +83,56 @@ export class NFTService {
   }
 
   // Generate a random verification amount between 0.01 and 0.02 MON
-  generateVerificationAmount(): string {
+  private generateVerificationAmount(): string {
     // Convert MON to wei (1 MON = 10^18 wei)
     const min = BigInt("10000000000000000"); // 0.01 MON in wei
     const max = BigInt("20000000000000000"); // 0.02 MON in wei
     const range = max - min;
 
-    // Generate random BigInt between 0 and range
+    // Always random - each wallet registration gets new amount
     const random = BigInt(Math.floor(Math.random() * Number(range)));
     const amount = min + random;
 
     return amount.toString();
   }
 
-  // Get or generate verification amount for a wallet
-  async getVerificationAmount(address: string): Promise<string> {
+  // Get verification amount for a wallet from memory cache
+  getVerificationAmount(address: string): string | null {
     const normalizedAddress = address.toLowerCase();
+    const amount = this.verificationAmounts.get(normalizedAddress);
 
-    // Get existing amount from database (for payment checks)
-    let amount = await db.getVerificationAmount(normalizedAddress);
-
-    if (!amount) {
-      // If no amount exists, generate new one (shouldn't happen during payment checks)
-      amount = this.generateVerificationAmount();
-      await db.setVerificationAmount(normalizedAddress, amount);
+    if (amount) {
       console.log(
-        `🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+        `📋 Using cached verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
       );
-    } else {
-      console.log(
-        `📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
-      );
+      return amount;
     }
 
-    return amount;
+    console.log(`❌ No verification amount found for ${normalizedAddress}`);
+    return null;
   }
 
   // Generate fresh verification amount for new wallet registration
-  async generateFreshVerificationAmount(address: string): Promise<string> {
+  generateFreshVerificationAmount(address: string): string {
     const normalizedAddress = address.toLowerCase();
 
-    // CLEAR old amount first to ensure fresh generation
-    await db.clearVerificationAmount(normalizedAddress);
-
-    // Always generate fresh amount for new registrations
+    // Generate fresh amount for this registration
     const amount = this.generateVerificationAmount();
-    await db.setVerificationAmount(normalizedAddress, amount);
+
+    // Store in memory cache
+    this.verificationAmounts.set(normalizedAddress, amount);
+
     console.log(
-      `🎯 Generated FRESH verification amount for new registration ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+      `🎯 Generated FRESH verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
     );
 
     return amount;
   }
 
-  // Clear verification amount after successful verification
-  async clearVerificationAmount(address: string): Promise<void> {
+  // Clear verification amount after successful verification or wallet deletion
+  clearVerificationAmount(address: string): void {
     const normalizedAddress = address.toLowerCase();
-    await db.clearVerificationAmount(normalizedAddress);
+    this.verificationAmounts.delete(normalizedAddress);
     console.log(`🗑️ Cleared verification amount for ${normalizedAddress}`);
   }
 
@@ -485,7 +481,7 @@ export class NFTService {
             console.log(
               `🎉 INSTANT VERIFICATION SUCCESS for ${normalizedAddress}!`,
             );
-            await this.clearVerificationAmount(normalizedAddress);
+            this.clearVerificationAmount(normalizedAddress);
             return true;
           } else {
             console.log(
@@ -501,7 +497,13 @@ export class NFTService {
     }
 
     // Fallback: Check recent transactions for other addresses
-    const expectedAmount = await this.getVerificationAmount(normalizedAddress);
+    const expectedAmount = this.getVerificationAmount(normalizedAddress);
+
+    if (!expectedAmount) {
+      console.log(`❌ No verification amount found for ${normalizedAddress}`);
+      return false;
+    }
+
     const expectedMON = (Number(expectedAmount) / 1e18).toFixed(5);
 
     console.log(
@@ -569,7 +571,7 @@ export class NFTService {
     });
 
     if (validTransaction) {
-      await this.clearVerificationAmount(normalizedAddress);
+      this.clearVerificationAmount(normalizedAddress);
       console.log(`✅ Payment verified for ${normalizedAddress}`);
     } else {
       console.log(`❌ No valid payment found for ${normalizedAddress}`);
@@ -589,7 +591,7 @@ export class NFTService {
     }
 
     const normalizedAddress = address.toLowerCase();
-    await this.clearVerificationAmount(normalizedAddress);
+    this.clearVerificationAmount(normalizedAddress);
     console.log(
       `✅ Manual payment verification approved for ${normalizedAddress} by admin`,
     );

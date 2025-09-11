@@ -146,7 +146,7 @@ const sendVerificationInstructions = async (
   address: string,
 ) => {
   const verificationAmount =
-    await nftService.generateFreshVerificationAmount(address);
+    nftService.generateFreshVerificationAmount(address);
   const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
 
   const embed = new EmbedBuilder()
@@ -192,6 +192,7 @@ const sendVerificationInstructions = async (
     try {
       // Verify the wallet and update roles
       await db.verifyWallet(address);
+      nftService.clearVerificationAmount(address);
       await discordService.updateMemberRoles(interaction.user.id);
 
       const successEmbed = new EmbedBuilder()
@@ -688,6 +689,7 @@ client.on("interactionCreate", async (interaction) => {
 
                 // Verify the wallet and update roles
                 await db.verifyWallet(address);
+                nftService.clearVerificationAmount(address);
                 await discordService.updateMemberRoles(
                   buttonInteraction.user.id,
                 );
@@ -728,7 +730,17 @@ client.on("interactionCreate", async (interaction) => {
               } else {
                 // Payment not received - show status with NFT check
                 const verificationAmount =
-                  await nftService.getVerificationAmount(address);
+                  nftService.getVerificationAmount(address);
+
+                if (!verificationAmount) {
+                  await buttonInteraction.editReply({
+                    content:
+                      "❌ No verification amount found. Please add the wallet again.",
+                    components: [],
+                  });
+                  return;
+                }
+
                 const amountInMON = (Number(verificationAmount) / 1e18).toFixed(
                   5,
                 );
@@ -893,6 +905,8 @@ client.on("interactionCreate", async (interaction) => {
               }
 
               await db.deleteWallet(buttonInteraction.user.id, address);
+              // DON'T clear verification amount - security risk!
+              // If same wallet is re-added, it should get NEW amount
 
               // Update roles after wallet deletion
               await discordService.updateMemberRoles(buttonInteraction.user.id);
@@ -985,6 +999,8 @@ client.on("interactionCreate", async (interaction) => {
           const selectedWallet = wallets[walletNumber - 1];
 
           await db.deleteWallet(interaction.user.id, selectedWallet.address);
+          // DON'T clear verification amount - security risk!
+          // If same wallet is re-added, it should get NEW amount
           await discordService.updateMemberRoles(interaction.user.id);
 
           if (interaction.isRepliable() && !interaction.replied) {
@@ -1139,6 +1155,7 @@ client.on("messageCreate", async (message) => {
 
       if (isValidated) {
         await db.verifyWallet(address.toLowerCase());
+        nftService.clearVerificationAmount(address.toLowerCase());
         await discordService.updateMemberRoles(message.author.id);
 
         await message.reply({
