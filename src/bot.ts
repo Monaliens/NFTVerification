@@ -145,7 +145,8 @@ const sendVerificationInstructions = async (
   interaction: ModalSubmitInteraction,
   address: string,
 ) => {
-  const verificationAmount = await nftService.getVerificationAmount(address);
+  const verificationAmount =
+    await nftService.generateFreshVerificationAmount(address);
   const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
 
   const embed = new EmbedBuilder()

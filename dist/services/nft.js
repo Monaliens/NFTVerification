@@ -30,8 +30,15 @@ class NFTService {
     }
     async getVerificationAmount(address) {
         const normalizedAddress = address.toLowerCase();
-        const amount = this.generateVerificationAmount();
-        console.log(`🎯 Generated FRESH verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
+        let amount = await database_1.db.getVerificationAmount(normalizedAddress);
+        if (!amount) {
+            amount = this.generateVerificationAmount();
+            await database_1.db.setVerificationAmount(normalizedAddress, amount);
+            console.log(`🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
+        }
+        else {
+            console.log(`📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`);
+        }
         return amount;
     }
     async generateFreshVerificationAmount(address) {

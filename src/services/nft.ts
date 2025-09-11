@@ -97,12 +97,21 @@ export class NFTService {
   async getVerificationAmount(address: string): Promise<string> {
     const normalizedAddress = address.toLowerCase();
 
-    // ALWAYS generate fresh amount - NO DATABASE CACHING!
-    const amount = this.generateVerificationAmount();
+    // Get existing amount from database (for payment checks)
+    let amount = await db.getVerificationAmount(normalizedAddress);
 
-    console.log(
-      `🎯 Generated FRESH verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
-    );
+    if (!amount) {
+      // If no amount exists, generate new one (shouldn't happen during payment checks)
+      amount = this.generateVerificationAmount();
+      await db.setVerificationAmount(normalizedAddress, amount);
+      console.log(
+        `🔢 Generated new verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+      );
+    } else {
+      console.log(
+        `📋 Using existing verification amount for ${normalizedAddress}: ${(Number(amount) / 1e18).toFixed(5)} MON`,
+      );
+    }
 
     return amount;
   }

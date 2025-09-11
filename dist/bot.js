@@ -93,7 +93,7 @@ const createWalletActionRow = (wallets) => {
     return row;
 };
 const sendVerificationInstructions = async (interaction, address) => {
-    const verificationAmount = await nft_1.nftService.getVerificationAmount(address);
+    const verificationAmount = await nft_1.nftService.generateFreshVerificationAmount(address);
     const amountInMON = (Number(verificationAmount) / 1e18).toFixed(5);
     const embed = new discord_js_1.EmbedBuilder()
         .setColor("#0099ff")
