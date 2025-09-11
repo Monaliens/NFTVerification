@@ -536,11 +536,6 @@ export class NFTService {
 
     const validTransaction = transactions.some((tx) => {
       const isSelfTransfer = tx.from === tx.to && tx.from === normalizedAddress;
-      // Compare raw wei values directly - no floating point precision issues!
-      const actualWei = BigInt(tx.value);
-      const expectedWei = BigInt(expectedAmount);
-
-      const actualMON = (Number(tx.value) / 1e18).toFixed(5);
 
       // Check if transaction is recent (within last 5 minutes)
       const txTimestamp = tx.timestamp;
