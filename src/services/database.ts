@@ -39,6 +39,17 @@ class DatabaseService {
     });
   }
 
+  // Ensure user exists (idempotent). Useful for backfilling when a Discord user
+  // somehow has the Verified role but no DB record (e.g. legacy data, manual role grant)
+  async ensureUser(discordId: string) {
+    return this.prisma.user.upsert({
+      where: { discordId },
+      update: {},
+      create: { discordId },
+      include: { wallets: true },
+    });
+  }
+
   async getUser(discordId: string) {
     return this.prisma.user.findUnique({
       where: { discordId },

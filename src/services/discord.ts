@@ -57,8 +57,19 @@ export class DiscordService {
       return;
     }
 
+    // Defensive sync: ensure user exists in DB if they already have the verified role
+    // (e.g. role granted manually before bot introduced or transient DB issue earlier)
+    let wallets = await db.getUserWallets(discordId);
+    if (wallets.length === 0) {
+      const hasRoleAlready = member.roles.cache.has(verifiedRole.id);
+      if (hasRoleAlready) {
+        console.log(`🛠️ Backfilling missing DB user for ${discordId} (has Verified role but no DB record)`);
+        await db.ensureUser(discordId);
+        wallets = await db.getUserWallets(discordId); // re-fetch after ensure
+      }
+    }
+
     const hasVerifiedWallet = await db.hasVerifiedWallet(discordId);
-    const wallets = await db.getUserWallets(discordId);
 
     // Update verified role - Only add, never remove
     if (hasVerifiedWallet && !member.roles.cache.has(verifiedRole.id)) {
